@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ChevronDown, MapPin, Moon, Sun } from "lucide-react"
 import { useSport } from "./sport-context"
 import { useEffect, useState } from "react"
-import { BasketballIcon, VolleyballIcon, FootballIcon, SoccerIcon, TennisIcon } from "./sport-icons"
+import { BasketballIcon, VolleyballIcon, FootballIcon, SoccerIcon, TennisIcon, PickleballIcon } from "./sport-icons"
 
 export function Header() {
   const { currentSport, setCurrentSport } = useSport()
@@ -37,6 +37,7 @@ export function Header() {
     { id: "football", name: "Football", icon: FootballIcon },
     { id: "soccer", name: "Soccer", icon: SoccerIcon },
     { id: "tennis", name: "Tennis", icon: TennisIcon },
+    { id: "pickleball", name: "Pickleball", icon: PickleballIcon },
   ]
 
   const CurrentSportIcon = sports.find((s) => s.id === currentSport)?.icon || BasketballIcon
@@ -54,7 +55,7 @@ export function Header() {
                 <ChevronDown className="h-4 w-4 opacity-70" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuContent align="start" className="w-48 z-[9999]">
               {sports.map((sport) => (
                 <DropdownMenuItem
                   key={sport.id}

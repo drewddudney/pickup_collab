@@ -1,0 +1,93 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isTeamMember(teamData) {
+      return isAuthenticated() && 
+             teamData.members.hasAny([request.auth.uid]);
+    }
+
+    // Users collection rules
+    match /users/{userId} {
+      // Allow read if authenticated
+      allow read: if isAuthenticated();
+      
+      // Allow write only to own document
+      allow write: if isAuthenticated() && isOwner(userId);
+    }
+
+    // Teams collection rules
+    match /teams/{teamId} {
+      // Allow read for all authenticated users
+      allow read: if isAuthenticated();
+      
+      // Allow create if authenticated and user is owner and member
+      allow create: if isAuthenticated() && 
+                     request.resource.data.owner == request.auth.uid &&
+                     request.resource.data.members.hasAll([request.auth.uid]);
+      
+      // Allow update if user is team owner or member
+      allow update: if isAuthenticated() && 
+                     (resource.data.owner == request.auth.uid ||
+                      isTeamMember(resource.data));
+      
+      // Allow delete if user is team owner
+      allow delete: if isAuthenticated() && 
+                     resource.data.owner == request.auth.uid;
+    }
+    
+    // Games collection rules
+    match /games/{gameId} {
+      // Allow read for all authenticated users
+      allow read: if isAuthenticated();
+      
+      // Allow create if authenticated
+      allow create: if isAuthenticated();
+      
+      // Allow update/delete if user created the game or is a participant
+      allow update, delete: if isAuthenticated() && 
+                             (resource.data.createdBy == request.auth.uid ||
+                              resource.data.participants.hasAny([request.auth.uid]));
+    }
+    
+    // Locations collection rules - top level
+    match /locations/{locationId} {
+      // Allow read for all authenticated users
+      allow read: if isAuthenticated();
+      
+      // Allow create if authenticated
+      allow create: if isAuthenticated();
+      
+      // Allow update/delete if user created the location
+      allow update, delete: if isAuthenticated() && 
+                             resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Sport-specific locations
+    match /locations/{sportId}/{locationId} {
+      // Allow read for all authenticated users
+      allow read: if isAuthenticated();
+      
+      // Allow create if authenticated
+      allow create: if isAuthenticated();
+      
+      // Allow update/delete if user created the location
+      allow update, delete: if isAuthenticated() && 
+                             resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Allow read access to all collections for authenticated users
+    match /{collection}/{document=**} {
+      allow read: if isAuthenticated();
+    }
+  }
+} 

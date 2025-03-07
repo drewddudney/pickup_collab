@@ -23,6 +23,17 @@ import dynamic from "next/dynamic"
 import { allCourts } from "@/data/courts"
 import { Badge } from "@/components/ui/badge"
 import { BasketballIcon, VolleyballIcon, FootballIcon, SoccerIcon, TennisIcon } from "./sport-icons"
+import Image from "next/image"
+
+// Map sport IDs to their image file names
+const sportImageMap: Record<string, string> = {
+  basketball: "basketball.png",
+  pickleball: "pickleball.png",
+  tennis: "tennisball.png",
+  volleyball: "volleyball.png",
+  football: "football.png",
+  soccer: "football.png" // Use football as fallback for soccer
+};
 
 // Type for waitlist entry
 interface WaitlistEntry {
@@ -54,7 +65,7 @@ const MapWithNoSSR = dynamic(() => import("@/components/leaflet-map"), {
     <div className="h-full w-full flex items-center justify-center bg-muted/20">
       <div className="flex flex-col items-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-        <p className="mt-4 text-muted-foreground">Loading map...</p>
+        <p className="mt-4 text-muted-foreground">Loading...</p>
       </div>
     </div>
   ),
@@ -326,13 +337,20 @@ export default function MapContainer({ sportType }: MapContainerProps) {
                 Sports
               </Label>
               <div className="col-span-3 flex flex-wrap gap-2">
-                {["basketball", "volleyball", "football", "soccer", "tennis"].map((sport) => (
+                {["basketball", "volleyball", "football", "pickleball", "tennis"].map((sport) => (
                   <Badge
                     key={sport}
                     variant={newCourtSports.includes(sport) ? "default" : "outline"}
-                    className="cursor-pointer capitalize"
+                    className="cursor-pointer capitalize flex items-center gap-1"
                     onClick={() => toggleSportSelection(sport)}
                   >
+                    <Image 
+                      src={`/${sportImageMap[sport]}`} 
+                      alt={`${sport} ball`} 
+                      width={16} 
+                      height={16} 
+                      className="object-contain"
+                    />
                     {sport}
                   </Badge>
                 ))}
@@ -458,13 +476,20 @@ export default function MapContainer({ sportType }: MapContainerProps) {
                 Sports
               </Label>
               <div className="col-span-3 flex flex-wrap gap-2">
-                {["basketball", "volleyball", "football", "soccer", "tennis"].map((sport) => (
+                {["basketball", "volleyball", "football", "pickleball", "tennis"].map((sport) => (
                   <Badge
                     key={sport}
                     variant={newCourtSports.includes(sport) ? "default" : "outline"}
-                    className="cursor-pointer capitalize"
+                    className="cursor-pointer capitalize flex items-center gap-1"
                     onClick={() => toggleSportSelection(sport)}
                   >
+                    <Image 
+                      src={`/${sportImageMap[sport]}`} 
+                      alt={`${sport} ball`} 
+                      width={16} 
+                      height={16} 
+                      className="object-contain"
+                    />
                     {sport}
                   </Badge>
                 ))}
@@ -829,11 +854,13 @@ export default function MapContainer({ sportType }: MapContainerProps) {
             </p>
             <div className="flex items-center gap-2 text-xs">
               <div className="flex items-center gap-1">
-                {sportType === "basketball" && <BasketballIcon className="w-4 h-4" />}
-                {sportType === "volleyball" && <VolleyballIcon className="w-4 h-4" />}
-                {sportType === "football" && <FootballIcon className="w-4 h-4" />}
-                {sportType === "soccer" && <SoccerIcon className="w-4 h-4" />}
-                {sportType === "tennis" && <TennisIcon className="w-4 h-4" />}
+                <Image 
+                  src={`/${sportImageMap[sportType] || 'basketball.png'}`} 
+                  alt={`${sportType} ball`} 
+                  width={16} 
+                  height={16} 
+                  className="object-contain"
+                />
                 <span className="capitalize">{sportType} Location</span>
               </div>
             </div>

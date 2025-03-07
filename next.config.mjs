@@ -21,6 +21,16 @@ const nextConfig = {
     parallelServerBuildTraces: true,
     parallelServerCompiles: true,
   },
+  // Configure pages that should not be pre-rendered at build time
+  // This is important for pages that use browser-specific APIs like window/document
+  unstable_runtimeJS: true,
+  // Disable static generation for the map page
+  exportPathMap: async function (defaultPathMap) {
+    return {
+      ...defaultPathMap,
+      '/map': { page: '/map', _isClientOnly: true },
+    };
+  },
 }
 
 mergeConfig(nextConfig, userConfig)

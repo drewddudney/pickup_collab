@@ -182,12 +182,15 @@ export default function MapView() {
     console.log("DEBUG: User authenticated:", !!user);
     console.log("DEBUG: Using mock data:", useMockData);
     
-    // Check if Leaflet CSS is loaded
-    const leafletCssLoaded = document.querySelector('link[href*="leaflet.css"]');
-    console.log("DEBUG: Leaflet CSS loaded:", !!leafletCssLoaded);
-    
-    // Check if window.L is available (Leaflet global)
-    console.log("DEBUG: Leaflet global available:", typeof L !== 'undefined');
+    // Only check for Leaflet CSS in browser environment
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      // Check if Leaflet CSS is loaded
+      const leafletCssLoaded = document.querySelector('link[href*="leaflet.css"]');
+      console.log("DEBUG: Leaflet CSS loaded:", !!leafletCssLoaded);
+      
+      // Check if window.L is available (Leaflet global)
+      console.log("DEBUG: Leaflet global available:", typeof L !== 'undefined');
+    }
   }, [isLoaded, selectedSport, user, useMockData]);
 
   // Test Firebase connection
@@ -579,10 +582,19 @@ export default function MapView() {
   }
 
   if (error) {
-    return <div className="flex flex-col items-center justify-center h-[80vh] p-4">
-      <p className="text-red-500 mb-4">Error: {error}</p>
-      <Button onClick={() => window.location.reload()}>Retry</Button>
-    </div>;
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-4">
+        <div className="text-center mb-4">
+          <h2 className="text-xl font-bold mb-2">Error Loading Map</h2>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => {
+            if (typeof window !== 'undefined') {
+              window.location.reload();
+            }
+          }}>Retry</Button>
+        </div>
+      </div>
+    );
   }
 
   if (!user) {

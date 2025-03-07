@@ -1,5 +1,8 @@
 'use client';
 
+// Import the configuration to ensure this page is only rendered on the client side
+import './config.js';
+
 import { useAuth } from "@/contexts/AuthContext";
 import { redirect } from "next/navigation";
 import { Home, Map, Calendar, Users } from "lucide-react";

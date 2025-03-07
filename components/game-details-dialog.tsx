@@ -19,7 +19,7 @@ import { allCourts } from "@/data/courts"
 
 interface ScheduledGame {
   id: string
-  courtId: string
+  courtId: number
   startTime: string
   endTime: string
   players: {
@@ -47,11 +47,9 @@ export function GameDetailsDialog({ game, onClose, onJoin }: GameDetailsDialogPr
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>{court?.name}</DialogTitle>
-          <DialogDescription>
-            <div className="flex items-center gap-1 text-sm">
-              <MapPin className="h-3 w-3" />
-              {court?.address}
-            </div>
+          <DialogDescription className="flex items-center gap-1 text-sm">
+            <MapPin className="h-3 w-3" />
+            {court?.address}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">

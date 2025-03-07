@@ -15,6 +15,10 @@ export default function MapPageContent() {
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("map");
   
+  // Get the client parameter to preserve it in navigation
+  const isClientOnly = searchParams.get('client') === 'true';
+  const clientParam = isClientOnly ? '&client=true' : '';
+  
   // Set the active tab based on the query parameter
   useEffect(() => {
     const tab = searchParams.get("tab");
@@ -43,7 +47,7 @@ export default function MapPageContent() {
             <TabsTrigger 
               value="home" 
               className="flex flex-col items-center justify-center data-[state=active]:bg-accent/50"
-              onClick={() => router.push('/home')}
+              onClick={() => router.push(isClientOnly ? '/home?client=true' : '/home')}
             >
               <Home className="h-5 w-5" />
               <span className="text-xs">Home</span>
@@ -53,7 +57,7 @@ export default function MapPageContent() {
               className="flex flex-col items-center justify-center data-[state=active]:bg-accent/50"
               onClick={() => {
                 setActiveTab("map");
-                router.push('/map');
+                router.push(isClientOnly ? '/map?client=true' : '/map');
               }}
             >
               <Map className="h-5 w-5" />
@@ -64,7 +68,7 @@ export default function MapPageContent() {
               className="flex flex-col items-center justify-center data-[state=active]:bg-accent/50"
               onClick={() => {
                 setActiveTab("schedule");
-                router.push('/map?tab=schedule');
+                router.push(`/map?tab=schedule${clientParam}`);
               }}
             >
               <Calendar className="h-5 w-5" />
@@ -75,7 +79,7 @@ export default function MapPageContent() {
               className="flex flex-col items-center justify-center data-[state=active]:bg-accent/50"
               onClick={() => {
                 setActiveTab("teammates");
-                router.push('/map?tab=teammates');
+                router.push(`/map?tab=teammates${clientParam}`);
               }}
             >
               <Users className="h-5 w-5" />

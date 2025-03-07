@@ -51,6 +51,19 @@ module.exports = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Sport colors
+        'orange': {
+          '500': '#f97316',
+        },
+        'yellow': {
+          '300': '#fef08a',
+        },
+        'lime': {
+          '300': '#bef264',
+        },
+        'brown': {
+          '500': '#92400e',
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

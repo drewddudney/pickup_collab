@@ -1,82 +1,92 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { ChevronDown, MapPin, Moon, Sun } from "lucide-react"
-import { useSport } from "./sport-context"
-import { useEffect, useState } from "react"
-import { BasketballIcon, VolleyballIcon, FootballIcon, SoccerIcon, TennisIcon, PickleballIcon } from "./sport-icons"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu"
+import { User, Settings, LogOut } from "lucide-react"
+import { useCallback, useState } from "react"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { useAuth } from "@/contexts/AuthContext"
+import { SportSelector } from "@/components/sport-selector"
+import { NotificationsDropdown } from "@/components/notifications-dropdown"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 export function Header() {
-  const { currentSport, setCurrentSport } = useSport()
-  const [theme, setTheme] = useState<"light" | "dark">("light")
+  const { user, logout } = useAuth()
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const router = useRouter()
 
-  // Handle theme toggle
-  const toggleTheme = () => {
-    const newTheme = theme === "light" ? "dark" : "light"
-    setTheme(newTheme)
-    if (newTheme === "dark") {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
+  // Don't render if no user
+  if (!user) return null;
+
+  const handleLogout = useCallback(async () => {
+    if (isLoggingOut) return; // Prevent multiple logout attempts
+    
+    try {
+      setIsLoggingOut(true);
+      await logout();
+      // Use window.location instead of router
+      window.location.href = '/login';
+    } catch (error) {
+      console.error('Failed to logout:', error);
+      setIsLoggingOut(false);
     }
-  }
+  }, [logout, isLoggingOut]);
 
-  // Initialize theme based on system preference
-  useEffect(() => {
-    const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches
-    if (isDark) {
-      setTheme("dark")
-      document.documentElement.classList.add("dark")
-    }
-  }, [])
-
-  const sports = [
-    { id: "basketball", name: "Basketball", icon: BasketballIcon },
-    { id: "volleyball", name: "Volleyball", icon: VolleyballIcon },
-    { id: "football", name: "Football", icon: FootballIcon },
-    { id: "soccer", name: "Soccer", icon: SoccerIcon },
-    { id: "tennis", name: "Tennis", icon: TennisIcon },
-    { id: "pickleball", name: "Pickleball", icon: PickleballIcon },
-  ]
-
-  const CurrentSportIcon = sports.find((s) => s.id === currentSport)?.icon || BasketballIcon
+  const userInitials = user?.email ? user.email[0].toUpperCase() : '?'
 
   return (
-    <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 py-4 px-6 sticky top-0 z-50">
-      <div className="container mx-auto flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold">Pickup</h1>
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container flex h-14 items-center justify-between">
+        <div className="mr-4 flex">
+          <Link href="/home" className="mr-6 flex items-center space-x-2">
+            <span className="font-bold sm:inline-block">
+              PickUp
+            </span>
+          </Link>
+        </div>
+        <div className="flex items-center justify-end space-x-4">
+          <SportSelector />
+          <NotificationsDropdown />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="flex items-center gap-2 px-2 py-1 h-auto">
-                <CurrentSportIcon className="w-6 h-6" />
-                <span className="capitalize">{currentSport}</span>
-                <ChevronDown className="h-4 w-4 opacity-70" />
-              </Button>
+              <Avatar className="h-8 w-8 cursor-pointer">
+                <AvatarImage src={user?.photoURL || ''} />
+                <AvatarFallback>{userInitials}</AvatarFallback>
+              </Avatar>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48 z-[9999]">
-              {sports.map((sport) => (
-                <DropdownMenuItem
-                  key={sport.id}
-                  className="flex items-center gap-2 cursor-pointer"
-                  onClick={() => setCurrentSport(sport.id)}
-                >
-                  <sport.icon className="w-6 h-6" />
-                  <span>{sport.name}</span>
-                </DropdownMenuItem>
-              ))}
+            <DropdownMenuContent align="end" className="z-50">
+              <DropdownMenuItem 
+                className="cursor-pointer"
+                onClick={() => router.push('/profile')}
+              >
+                <User className="mr-2 h-4 w-4" />
+                <span>Profile</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                className="cursor-pointer"
+                onClick={() => router.push('/app-settings')}
+              >
+                <Settings className="mr-2 h-4 w-4" />
+                <span>App Settings</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem 
+                className="cursor-pointer" 
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>{isLoggingOut ? 'Logging out...' : 'Logout'}</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm md:text-base">
-            <MapPin className="h-4 w-4 text-primary" />
-            <span>Austin, TX</span>
-          </div>
-          <Button variant="ghost" size="icon" onClick={toggleTheme}>
-            {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-          </Button>
         </div>
       </div>
     </header>

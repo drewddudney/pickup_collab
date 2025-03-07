@@ -4,6 +4,16 @@ import { useEffect, useRef } from "react"
 import "leaflet/dist/leaflet.css"
 import L from "leaflet"
 
+// Map sport IDs to their image file names
+const sportImageMap: Record<string, string> = {
+  basketball: "basketball.png",
+  pickleball: "pickleball.png",
+  tennis: "tennisball.png",
+  volleyball: "volleyball.png",
+  football: "football.png",
+  soccer: "football.png" // Use football as fallback for soccer
+};
+
 interface Court {
   id: number
   name: string
@@ -156,13 +166,13 @@ export default function LeafletMap({
       })
       markersRef.current = []
 
-      // Create sport-specific icon
+      // Create sport-specific icon using direct PNG references
       const sportIcon = L.icon({
-        iconUrl: `/sports/${sportType}-marker.svg`,
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
-        popupAnchor: [0, -16],
-        className: "sport-marker",
+        iconUrl: `/${sportImageMap[sportType] || 'basketball.png'}`,
+        iconSize: [40, 40], // Larger size for better visibility
+        iconAnchor: [20, 20],
+        popupAnchor: [0, -20],
+        className: `sport-marker sport-${sportType}`,
       })
 
       // Add markers for courts

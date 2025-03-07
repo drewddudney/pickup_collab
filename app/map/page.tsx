@@ -18,6 +18,8 @@ export default function MapPage() {
   
   // Check if we're being loaded in client-only mode
   const isClientOnly = searchParams.get('client') === 'true';
+  const tabParam = searchParams.get('tab');
+  const tabQueryString = tabParam ? `&tab=${tabParam}` : '';
   
   // Only load the map content on the client side
   useEffect(() => {
@@ -37,9 +39,9 @@ export default function MapPage() {
   // If we're not in client-only mode and this is server-side, redirect
   useEffect(() => {
     if (!isClientOnly && typeof window !== 'undefined') {
-      window.location.href = '/map?client=true';
+      window.location.href = `/map?client=true${tabQueryString}`;
     }
-  }, [isClientOnly]);
+  }, [isClientOnly, tabQueryString]);
 
   if (loading) {
     return (

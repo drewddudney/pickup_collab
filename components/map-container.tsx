@@ -27,7 +27,8 @@ import { BasketballIcon, VolleyballIcon, FootballIcon, SoccerIcon, TennisIcon } 
 // Type for waitlist entry
 interface WaitlistEntry {
   id: string
-  name: string
+  type: "individual" | "team"
+  names: string[]
   courtId: number
   joinedAt: Date
 }
@@ -69,6 +70,9 @@ export default function MapContainer({ sportType }: MapContainerProps) {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [showInfo, setShowInfo] = useState(false)
   const [waitlistName, setWaitlistName] = useState("")
+  const [waitlistType, setWaitlistType] = useState<"individual" | "team">("individual")
+  const [teamSize, setTeamSize] = useState("1")
+  const [teamNames, setTeamNames] = useState<string[]>([])
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([])
   const [currentTime, setCurrentTime] = useState(new Date())
   const [addLocationOpen, setAddLocationOpen] = useState(false)
@@ -117,26 +121,49 @@ export default function MapContainer({ sportType }: MapContainerProps) {
   const joinWaitlist = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!selectedCourt || !waitlistName.trim()) return
+    if (!selectedCourt || !waitlistType) return
+
+    if (waitlistType === "individual" && !waitlistName.trim()) return
+    if (waitlistType === "team" && (!teamNames || teamNames.length === 0)) return
 
     const newEntry: WaitlistEntry = {
       id: Math.random().toString(36).substring(2, 9),
-      name: waitlistName.trim(),
+      type: waitlistType,
+      names: waitlistType === "individual" ? [waitlistName.trim()] : teamNames,
       courtId: selectedCourt.id,
       joinedAt: new Date(),
     }
 
     setWaitlist((prev) => [...prev, newEntry])
     setWaitlistName("")
+    setTeamNames([])
+    setTeamSize("1")
+  }
+
+  // Add team member
+  const addTeamMember = () => {
+    if (!waitlistName?.trim() || !teamSize) return
+    if (teamNames.length < parseInt(teamSize)) {
+      setTeamNames((prev) => [...prev, waitlistName.trim()])
+      setWaitlistName("")
+    }
+  }
+
+  // Remove team member
+  const removeTeamMember = (index: number) => {
+    if (!teamNames) return
+    setTeamNames((prev) => prev.filter((_, i) => i !== index))
   }
 
   // Get waitlist for current court
   const getCourtWaitlist = (courtId: number) => {
+    if (!waitlist) return []
     return waitlist.filter((entry) => entry.courtId === courtId)
   }
 
   // Calculate minutes since joined
   const getMinutesSinceJoined = (joinedAt: Date) => {
+    if (!currentTime || !joinedAt) return "Just now"
     const diffMs = currentTime.getTime() - joinedAt.getTime()
     const diffMins = Math.floor(diffMs / 60000)
     return diffMins === 0 ? "Just now" : `${diffMins} min ago`
@@ -319,7 +346,7 @@ export default function MapContainer({ sportType }: MapContainerProps) {
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Number of courts/fields" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent position="popper" className="z-[9999]">
                   <SelectItem value="1">1</SelectItem>
                   <SelectItem value="2">2</SelectItem>
                   <SelectItem value="4">4</SelectItem>
@@ -335,7 +362,7 @@ export default function MapContainer({ sportType }: MapContainerProps) {
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Court surface" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent position="popper" className="z-[9999]">
                   <SelectItem value="Concrete">Concrete</SelectItem>
                   <SelectItem value="Asphalt">Asphalt</SelectItem>
                   <SelectItem value="Wood">Wood</SelectItem>
@@ -451,7 +478,7 @@ export default function MapContainer({ sportType }: MapContainerProps) {
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Number of courts/fields" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent position="popper" className="z-[9999]">
                   <SelectItem value="1">1</SelectItem>
                   <SelectItem value="2">2</SelectItem>
                   <SelectItem value="4">4</SelectItem>
@@ -467,7 +494,7 @@ export default function MapContainer({ sportType }: MapContainerProps) {
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Court surface" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent position="popper" className="z-[9999]">
                   <SelectItem value="Concrete">Concrete</SelectItem>
                   <SelectItem value="Asphalt">Asphalt</SelectItem>
                   <SelectItem value="Wood">Wood</SelectItem>
@@ -529,7 +556,10 @@ export default function MapContainer({ sportType }: MapContainerProps) {
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription>{selectedCourt.address}</CardDescription>
+                <CardDescription className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <MapPin className="h-3 w-3" />
+                  {selectedCourt.address}
+                </CardDescription>
                 <button
                   className="absolute top-2 right-2 h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted"
                   onClick={() => setSelectedCourt(null)}
@@ -592,26 +622,130 @@ export default function MapContainer({ sportType }: MapContainerProps) {
                 <CardDescription>
                   {getCourtWaitlist(selectedCourt.id).length === 0
                     ? "No one is waiting to play. Be the first!"
-                    : `${getCourtWaitlist(selectedCourt.id).length} people waiting to play`}
+                    : `${getCourtWaitlist(selectedCourt.id).length} ${
+                        getCourtWaitlist(selectedCourt.id).length === 1 ? "entry" : "entries"
+                      } in the waitlist`}
                 </CardDescription>
+                <button
+                  className="absolute top-2 right-2 h-6 w-6 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted"
+                  onClick={() => setSelectedCourt(null)}
+                >
+                  ✕
+                </button>
               </CardHeader>
               <CardContent className="pt-0">
                 <form onSubmit={joinWaitlist} className="space-y-3 mb-4">
-                  <div className="space-y-1">
-                    <Label htmlFor="name">Your Name</Label>
+                  <div className="space-y-2">
                     <div className="flex gap-2">
-                      <Input
-                        id="name"
-                        value={waitlistName}
-                        onChange={(e) => setWaitlistName(e.target.value)}
-                        placeholder="Enter your name"
-                        required
-                      />
-                      <Button type="submit" size="sm">
-                        <UserPlus className="h-4 w-4 mr-1" />
-                        Join
+                      <Button
+                        type="button"
+                        variant={waitlistType === "individual" ? "default" : "outline"}
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => {
+                          setWaitlistType("individual")
+                          setTeamNames([])
+                          setTeamSize("1")
+                        }}
+                      >
+                        Individual
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={waitlistType === "team" ? "default" : "outline"}
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => setWaitlistType("team")}
+                      >
+                        Team
                       </Button>
                     </div>
+
+                    {waitlistType === "team" ? (
+                      <>
+                        <div className="space-y-2">
+                          <Label>Team Size</Label>
+                          <Select value={teamSize} onValueChange={setTeamSize}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select team size" />
+                            </SelectTrigger>
+                            <SelectContent position="popper" className="z-[9999]">
+                              {[...Array(10)].map((_, i) => (
+                                <SelectItem key={i + 1} value={(i + 1).toString()}>
+                                  {i + 1} {i === 0 ? "player" : "players"}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+
+                          <div className="space-y-1">
+                            <Label htmlFor="name">Add Team Member</Label>
+                            <div className="flex gap-2">
+                              <Input
+                                id="name"
+                                value={waitlistName}
+                                onChange={(e) => setWaitlistName(e.target.value)}
+                                placeholder="Enter team member's name"
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={addTeamMember}
+                                disabled={teamNames.length >= parseInt(teamSize)}
+                              >
+                                Add
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            {teamNames.map((name, index) => (
+                              <div
+                                key={index}
+                                className="flex items-center justify-between bg-muted/50 p-2 rounded-md"
+                              >
+                                <span>{name}</span>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeTeamMember(index)}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+
+                          {teamNames.length > 0 && (
+                            <Button
+                              type="submit"
+                              className="w-full"
+                              disabled={teamNames.length === 0}
+                            >
+                              Join Waitlist as Team ({teamNames.length}/{teamSize})
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="space-y-1">
+                        <Label htmlFor="name">Your Name</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="name"
+                            value={waitlistName}
+                            onChange={(e) => setWaitlistName(e.target.value)}
+                            placeholder="Enter your name"
+                            required
+                          />
+                          <Button type="submit" size="sm">
+                            <UserPlus className="h-4 w-4 mr-1" />
+                            Join
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </form>
 
@@ -626,7 +760,21 @@ export default function MapContainer({ sportType }: MapContainerProps) {
                           <div className="bg-primary text-primary-foreground w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold">
                             {index + 1}
                           </div>
-                          <span className="font-medium">{entry.name}</span>
+                          <div>
+                            <div className="font-medium flex items-center gap-1">
+                              {entry.type === "team" && (
+                                <Badge variant="outline" className="text-xs">
+                                  Team
+                                </Badge>
+                              )}
+                              {entry.names[0]}
+                            </div>
+                            {entry.type === "team" && entry.names.length > 1 && (
+                              <div className="text-xs text-muted-foreground">
+                                +{entry.names.length - 1} team members
+                              </div>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center text-xs text-muted-foreground">
                           <Clock className="h-3 w-3 mr-1" />

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/contexts/AuthContext"
 import { db } from "@/lib/firebase"
-import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, setDoc, Timestamp, DocumentData } from "firebase/firestore"
+import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, setDoc, Timestamp, DocumentData, getDoc } from "firebase/firestore"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Notification } from "@/lib/firebase"
@@ -30,6 +30,8 @@ export function NotificationsDropdown() {
   const fetchNotifications = async () => {
     if (!user?.uid) return
     
+    console.log("Fetching notifications for user:", user.uid);
+    
     setIsLoading(true)
     try {
       // Get all notifications for the current user
@@ -39,19 +41,31 @@ export function NotificationsDropdown() {
         where("toUserId", "==", user.uid)
       )
       
+      console.log("Executing notifications query");
+      
       const querySnapshot = await getDocs(q)
+      
+      console.log("Notifications query returned", querySnapshot.docs.length, "results");
       
       // Convert to array and sort by createdAt
       const notificationsData = querySnapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as Notification & { id: string }))
+        .map(doc => {
+          const data = { id: doc.id, ...doc.data() } as Notification & { id: string };
+          console.log("Notification data:", data);
+          return data;
+        })
         .sort((a, b) => b.createdAt - a.createdAt)
         .slice(0, 20) // Limit to 20 notifications
+      
+      console.log("Processed notifications:", notificationsData);
       
       setNotifications(notificationsData)
       
       // Count unread notifications
       const unread = notificationsData.filter(notification => !notification.read).length
       setUnreadCount(unread)
+      
+      console.log("Unread notifications count:", unread);
     } catch (error) {
       console.error("Error fetching notifications:", error)
       toast({
@@ -96,26 +110,38 @@ export function NotificationsDropdown() {
       // Mark notification as read
       await markAsRead(notification.id)
       
+      // Get the friend request document
+      const friendRequestQuery = query(
+        collection(db, "friendRequests"),
+        where("fromUserId", "==", notification.fromUserId),
+        where("toUserId", "==", user.uid),
+        where("status", "==", "pending")
+      )
+      const friendRequestSnapshot = await getDocs(friendRequestQuery)
+      
+      if (friendRequestSnapshot.empty) {
+        throw new Error("Friend request not found")
+      }
+      
+      const friendRequestDoc = friendRequestSnapshot.docs[0]
+      const friendRequestData = friendRequestDoc.data()
+      
       // Get current user data
       const userDocRef = doc(db, "users", user.uid)
-      const userDocSnap = await getDocs(query(collection(db, "users"), where("id", "==", user.uid)))
-      const userData = userDocSnap.docs[0]?.data() || {}
+      const userDocSnap = await getDoc(userDocRef)
+      const userData = userDocSnap.data() || {}
       
-      // Get friend data
-      const friendDocSnap = await getDocs(query(collection(db, "users"), where("id", "==", notification.fromUserId)))
-      const friendData = friendDocSnap.docs[0]?.data() || {}
-      
-      // Add to friends collection for both users using setDoc instead of updateDoc
+      // Add to friends collection for both users
       const userFriendsRef = doc(db, "users", user.uid, "friends", notification.fromUserId)
       const friendFriendsRef = doc(db, "users", notification.fromUserId, "friends", user.uid)
       
       // Add each other as friends
       await setDoc(userFriendsRef, {
         id: notification.fromUserId,
-        firstName: friendData.firstName || "",
-        lastName: friendData.lastName || "",
-        email: friendData.email || "",
-        photoURL: friendData.photoURL || "",
+        firstName: friendRequestData.fromUserName.split(' ')[0] || "",
+        lastName: friendRequestData.fromUserName.split(' ')[1] || "",
+        email: friendRequestData.fromUserEmail || "",
+        photoURL: friendRequestData.fromUserPhoto || "",
         addedAt: Date.now()
       })
       
@@ -128,21 +154,19 @@ export function NotificationsDropdown() {
         addedAt: Date.now()
       })
       
+      // Update the friend request status to "accepted"
+      await updateDoc(doc(db, "friendRequests", friendRequestDoc.id), {
+        status: "accepted",
+        acceptedAt: Date.now()
+      })
+      
       // Delete the friend request notification
       const notificationRef = doc(db, "notifications", notification.id)
       await deleteDoc(notificationRef)
       
-      // Remove from pending friends collection if it exists
-      const pendingFriendRef = doc(db, "users", user.uid, "pendingFriends", notification.fromUserId)
-      try {
-        await deleteDoc(pendingFriendRef)
-      } catch (error) {
-        // Ignore if it doesn't exist
-      }
-      
       toast({
         title: "Friend request accepted",
-        description: `You are now friends with ${notification.data?.fromUserName || "this user"}`,
+        description: `You are now friends with ${friendRequestData.fromUserName || "this user"}`,
       })
       
       // Refresh notifications
@@ -162,17 +186,28 @@ export function NotificationsDropdown() {
     if (!user?.uid) return
     
     try {
+      // Get the friend request document
+      const friendRequestQuery = query(
+        collection(db, "friendRequests"),
+        where("fromUserId", "==", notification.fromUserId),
+        where("toUserId", "==", user.uid),
+        where("status", "==", "pending")
+      )
+      const friendRequestSnapshot = await getDocs(friendRequestQuery)
+      
+      if (!friendRequestSnapshot.empty) {
+        const friendRequestDoc = friendRequestSnapshot.docs[0]
+        
+        // Update the friend request status to "declined"
+        await updateDoc(doc(db, "friendRequests", friendRequestDoc.id), {
+          status: "declined",
+          declinedAt: Date.now()
+        })
+      }
+      
       // Delete the notification
       const notificationRef = doc(db, "notifications", notification.id)
       await deleteDoc(notificationRef)
-      
-      // Remove from pending friends collection if it exists
-      const pendingFriendRef = doc(db, "users", user.uid, "pendingFriends", notification.fromUserId)
-      try {
-        await deleteDoc(pendingFriendRef)
-      } catch (error) {
-        // Ignore if it doesn't exist
-      }
       
       // Update local state
       setNotifications(prev => prev.filter(n => n.id !== notification.id))
@@ -213,7 +248,20 @@ export function NotificationsDropdown() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+        <div className="flex items-center justify-between px-2">
+          <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={(e) => {
+              e.stopPropagation();
+              fetchNotifications();
+            }}
+            className="h-8 px-2 text-xs"
+          >
+            Refresh
+          </Button>
+        </div>
         <DropdownMenuSeparator />
         <div className="max-h-[300px] overflow-y-auto">
           {isLoading ? (

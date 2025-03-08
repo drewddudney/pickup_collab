@@ -16,8 +16,6 @@ const nextConfig = {
   images: {
     // Use the built-in Next.js image optimization
     unoptimized: false,
-    // Set higher quality for images
-    quality: 85,
     // Configure image domains for external images
     domains: [
       'unpkg.com', 
@@ -25,7 +23,7 @@ const nextConfig = {
       'firebasestorage.googleapis.com',
       'pickup-ba57f.firebasestorage.app'
     ],
-    // Set image quality and formats
+    // Set image formats
     formats: ['image/webp', 'image/avif'],
     // Configure image sizes for responsive images
     deviceSizes: [360, 480, 640, 750, 828, 1080, 1200, 1920, 2048],
@@ -38,11 +36,8 @@ const nextConfig = {
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
   // Optimize assets
-  optimizeFonts: true,
   compress: true,
   poweredByHeader: false,
-  reactStrictMode: true,
-  swcMinify: true,
   experimental: {
     webpackBuildWorker: true,
     parallelServerBuildTraces: true,
@@ -53,10 +48,7 @@ const nextConfig = {
   // Simple solution to prevent "window is not defined" errors
   // This tells Next.js to skip static optimization for the map page
   // without changing the site's appearance
-  compiler: {
-    // Disable server-side rendering for specific components
-    excludeServerComponents: ['app/map/page.tsx', 'components/map-view.tsx'],
-  },
+  serverComponentsExternalPackages: ['leaflet', 'react-leaflet'],
 }
 
 mergeConfig(nextConfig, userConfig)

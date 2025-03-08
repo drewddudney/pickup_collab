@@ -40,8 +40,8 @@ const nextConfig = {
   poweredByHeader: false,
   // External packages that should be transpiled
   transpilePackages: ['leaflet', 'react-leaflet'],
-  // Skip static optimization for specific pages
-  unstable_runtimeJS: true,
+  // Use SWC for compilation (required for next/font)
+  swcMinify: true,
 }
 
 mergeConfig(nextConfig, userConfig)

@@ -38,18 +38,10 @@ const nextConfig = {
   // Optimize assets
   compress: true,
   poweredByHeader: false,
-  experimental: {
-    // Disable CSS optimization to avoid critters issues
-    optimizeCss: false,
-    webpackBuildWorker: true,
-    parallelServerBuildTraces: true,
-    parallelServerCompiles: true,
-    scrollRestoration: true,
-  },
-  // Simple solution to prevent "window is not defined" errors
-  // This tells Next.js to skip static optimization for the map page
-  // without changing the site's appearance
-  serverComponentsExternalPackages: ['leaflet', 'react-leaflet'],
+  // External packages that should be transpiled
+  transpilePackages: ['leaflet', 'react-leaflet'],
+  // Skip static optimization for specific pages
+  unstable_runtimeJS: true,
 }
 
 mergeConfig(nextConfig, userConfig)

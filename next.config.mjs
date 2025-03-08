@@ -39,10 +39,11 @@ const nextConfig = {
   compress: true,
   poweredByHeader: false,
   experimental: {
+    // Disable CSS optimization to avoid critters issues
+    optimizeCss: false,
     webpackBuildWorker: true,
     parallelServerBuildTraces: true,
     parallelServerCompiles: true,
-    optimizeCss: true,
     scrollRestoration: true,
   },
   // Simple solution to prevent "window is not defined" errors

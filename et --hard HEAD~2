@@ -1,0 +1,5 @@
+[33m84d473a[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mdev-A[m[33m, [m[1;31morigin/dev-A[m[33m)[m Update vercel.json to use secret references
+[33mc347659[m Fix environment variables in vercel.json
+[33mb459c56[m Simple fix for window is not defined error
+[33mc3c5a43[m Implement client-only rendering for map page
+[33m656edc3[m Fix SSR issues with map page

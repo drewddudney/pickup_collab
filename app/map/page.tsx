@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { redirect, useSearchParams } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loading } from "@/components/ui/loading";
 import Script from "next/script";
 
 // Import the configuration
@@ -44,12 +44,7 @@ export default function MapPage() {
   }, [isClientOnly, tabQueryString]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2">Loading...</span>
-      </div>
-    );
+    return <Loading fullScreen message="Loading..." />;
   }
 
   if (!user) {
@@ -58,12 +53,7 @@ export default function MapPage() {
 
   // Show loading state until client-side rendering is ready
   if (!isClient || !MapContent) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2">Loading map...</span>
-      </div>
-    );
+    return <Loading fullScreen message="Loading map..." />;
   }
 
   // Render the dynamically imported component

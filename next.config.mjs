@@ -14,20 +14,41 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    // Enable image optimization for better quality on mobile
+    // Use the built-in Next.js image optimization
     unoptimized: false,
+    // Set higher quality for images
+    quality: 85,
     // Configure image domains for external images
-    domains: ['unpkg.com', 'lh3.googleusercontent.com'],
+    domains: [
+      'unpkg.com', 
+      'lh3.googleusercontent.com',
+      'firebasestorage.googleapis.com',
+      'pickup-ba57f.firebasestorage.app'
+    ],
     // Set image quality and formats
     formats: ['image/webp', 'image/avif'],
     // Configure image sizes for responsive images
-    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    deviceSizes: [360, 480, 640, 750, 828, 1080, 1200, 1920, 2048],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+    // Minimize image size in development
+    minimumCacheTTL: 60,
+    // Don't dangerously allow SVG
+    dangerouslyAllowSVG: false,
+    // Content security policy
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
+  // Optimize assets
+  optimizeFonts: true,
+  compress: true,
+  poweredByHeader: false,
+  reactStrictMode: true,
+  swcMinify: true,
   experimental: {
     webpackBuildWorker: true,
     parallelServerBuildTraces: true,
     parallelServerCompiles: true,
+    optimizeCss: true,
+    scrollRestoration: true,
   },
   // Simple solution to prevent "window is not defined" errors
   // This tells Next.js to skip static optimization for the map page

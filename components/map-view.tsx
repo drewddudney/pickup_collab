@@ -23,6 +23,10 @@ import { Libraries, useLoadScript } from '@react-google-maps/api';
 import { Autocomplete } from '@/components/ui/autocomplete';
 import React from 'react';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Slider } from '@/components/ui/slider';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CircleDot } from 'lucide-react';
+import dynamic from 'next/dynamic';
 
 // Add access types
 const ACCESS_TYPES = {
@@ -106,6 +110,245 @@ const MOCK_LOCATIONS: ExtendedLocation[] = [
   }
 ];
 
+// Global map instance tracker - completely outside of React
+let globalMapInstance: L.Map | null = null;
+let isMapInitializing = false;
+let mapInitializationPromise: Promise<L.Map> | null = null;
+let leafletCssLoaded = false;
+
+// Define a constant map container ID outside the component
+const MAP_CONTAINER_ID = "map-container";
+
+// Add a type declaration for the global L object
+declare global {
+  interface Window {
+    L: typeof import('leaflet');
+  }
+}
+
+// Function to load Leaflet CSS
+function loadLeafletCss() {
+  if (leafletCssLoaded || typeof document === 'undefined') return;
+  
+  // Check if the CSS is already loaded
+  const existingLink = document.querySelector('link[href*="leaflet.css"]');
+  if (existingLink) {
+    leafletCssLoaded = true;
+    return;
+  }
+  
+  // Create a new link element
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+  link.crossOrigin = '';
+  
+  // Append it to the head
+  document.head.appendChild(link);
+  
+  // Mark as loaded
+  leafletCssLoaded = true;
+  
+  console.log("DEBUG: Leaflet CSS loaded");
+}
+
+// Function to safely destroy any existing map
+function cleanupExistingMap() {
+  // Check if there's a global map instance
+  if (globalMapInstance) {
+    console.log("DEBUG: Cleaning up existing global map instance");
+    try {
+      globalMapInstance.off();
+      globalMapInstance.remove();
+      globalMapInstance = null;
+    } catch (error) {
+      console.error("DEBUG: Error cleaning up global map instance", error);
+    }
+  }
+  
+  // Also check for any map containers in the DOM
+  if (typeof document !== 'undefined') {
+    // Find the container
+    const container = document.getElementById(MAP_CONTAINER_ID);
+    if (container) {
+      console.log("DEBUG: Cleaning up map container");
+      // Clear the container
+      container.innerHTML = '';
+      
+      // Remove any Leaflet-specific classes
+      container.className = container.className
+        .split(' ')
+        .filter(c => !c.startsWith('leaflet'))
+        .join(' ');
+    }
+    
+    // Also remove any other leaflet containers that might exist
+    document.querySelectorAll('.leaflet-container').forEach(el => {
+      if (el.id !== MAP_CONTAINER_ID) {
+        console.log("DEBUG: Removing extra leaflet container");
+        if (el.parentNode) {
+          el.parentNode.removeChild(el);
+        }
+      }
+    });
+  }
+  
+  // Reset the initialization state
+  isMapInitializing = false;
+  mapInitializationPromise = null;
+}
+
+// Function to safely initialize the map
+function getOrCreateMapInstance(containerId: string, center: [number, number], zoom: number): Promise<L.Map> {
+  // Load Leaflet CSS
+  loadLeafletCss();
+  
+  // If we already have a map instance, return it
+  if (globalMapInstance) {
+    console.log("DEBUG: Reusing existing map instance");
+    return Promise.resolve(globalMapInstance);
+  }
+  
+  // If we're already initializing, return the promise
+  if (mapInitializationPromise) {
+    console.log("DEBUG: Map initialization already in progress");
+    return mapInitializationPromise;
+  }
+  
+  // Start initialization
+  isMapInitializing = true;
+  console.log("DEBUG: Starting map initialization");
+  
+  // Create a promise to initialize the map
+  mapInitializationPromise = new Promise<L.Map>((resolve, reject) => {
+    try {
+      console.log("DEBUG: Creating new map instance");
+      
+      // Wait for the DOM to be ready
+      setTimeout(() => {
+        try {
+          // Check if the container exists
+          const container = document.getElementById(containerId);
+          if (!container) {
+            console.error(`DEBUG: Container ${containerId} not found`);
+            reject(new Error(`Container ${containerId} not found`));
+            return;
+          }
+          
+          console.log(`DEBUG: Container ${containerId} found with dimensions: ${container.clientWidth}x${container.clientHeight}`);
+          
+          // Fix Leaflet's icon paths
+          if (typeof window !== 'undefined') {
+            delete (L.Icon.Default.prototype as any)._getIconUrl;
+            
+            L.Icon.Default.mergeOptions({
+              iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+              iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+              shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+            });
+            
+            console.log("DEBUG: Leaflet icon paths fixed");
+          }
+          
+          // Create the map instance
+          console.log(`DEBUG: Creating map with center: ${center} and zoom: ${zoom}`);
+          const map = L.map(containerId, {
+            center,
+            zoom,
+            zoomControl: true,
+            attributionControl: true,
+            doubleClickZoom: true,
+            scrollWheelZoom: true,
+            dragging: true,
+          });
+          
+          // Add the tile layer
+          console.log("DEBUG: Adding tile layer");
+          L.tileLayer(
+            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            {
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }
+          ).addTo(map);
+          
+          // Store the map instance
+          globalMapInstance = map;
+          
+          // Resolve the promise
+          resolve(map);
+          
+          // Reset the initialization flag
+          isMapInitializing = false;
+          mapInitializationPromise = null;
+          
+          console.log("DEBUG: Map instance created successfully");
+          
+          // Force a resize after a short delay
+          setTimeout(() => {
+            map.invalidateSize();
+            console.log("DEBUG: Map size invalidated");
+            
+            // Check container dimensions
+            const container = document.getElementById(containerId);
+            if (container) {
+              console.log(`DEBUG: Container dimensions after invalidateSize: ${container.clientWidth}x${container.clientHeight}`);
+            }
+          }, 500);
+        } catch (error) {
+          console.error("DEBUG: Error creating map instance", error);
+          reject(error);
+          
+          // Reset the initialization flag
+          isMapInitializing = false;
+          mapInitializationPromise = null;
+        }
+      }, 100);
+    } catch (error) {
+      console.error("DEBUG: Error in map initialization promise", error);
+      reject(error);
+      
+      // Reset the initialization flag
+      isMapInitializing = false;
+      mapInitializationPromise = null;
+    }
+  });
+  
+  return mapInitializationPromise;
+}
+
+// Function to safely destroy the map
+function destroyMapInstance() {
+  if (globalMapInstance) {
+    try {
+      console.log("DEBUG: Destroying map instance");
+      globalMapInstance.off();
+      globalMapInstance.remove();
+      globalMapInstance = null;
+    } catch (error) {
+      console.error("DEBUG: Error destroying map instance", error);
+    }
+  }
+}
+
+// Create a component to handle map initialization
+function MapInitializer({ onMapReady }: { onMapReady: (map: L.Map) => void }) {
+  useEffect(() => {
+    console.log("DEBUG: Map initializer mounted");
+    
+    // Get or create the map instance
+    if (globalMapInstance) {
+      onMapReady(globalMapInstance);
+    }
+    
+    return () => {
+      console.log("DEBUG: Map initializer unmounting");
+    };
+  }, [onMapReady]);
+  
+  return null;
+}
+
 function MapUpdater({ center }: { center: [number, number] }) {
   const map = useMap();
   useEffect(() => {
@@ -147,30 +390,255 @@ export default function MapView() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
   const [isDraggingMarker, setIsDraggingMarker] = useState(false);
-
+  const [isMounted, setIsMounted] = useState(false);
+  const [mapKey, setMapKey] = useState<string>(`map-${Date.now()}-${Math.random()}`);
+  
+  // Reference to the map instance
+  const mapRef = useRef<L.Map | null>(null);
+  
+  // Use the constant map container ID instead of creating it in the component
+  const [isMapInitialized, setIsMapInitialized] = useState(false);
+  
   const { isLoaded } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
     libraries,
   });
-
-  // Fix Leaflet icon issues
-  // This is needed because Leaflet's default icon paths are based on the page location
-  // and don't work correctly with Next.js
+  
+  // Handle auth state changes
   useEffect(() => {
-    // Only run this code on the client side
-    if (typeof window !== 'undefined') {
-      // Fix Leaflet's icon paths
-      delete (L.Icon.Default.prototype as any)._getIconUrl;
+    if (!authLoading && !user) {
+      // User is not authenticated, show a message
+      console.log("DEBUG: User is not authenticated");
+      setError("Please log in to view and add locations.");
+    } else if (!authLoading && user) {
+      // User is authenticated, clear any auth-related errors
+      console.log("DEBUG: User is authenticated:", user.uid);
+      if (error === "Please log in to view and add locations.") {
+        setError(null);
+      }
+    }
+  }, [user, authLoading, error]);
+  
+  // Reverse geocode function
+  const reverseGeocode = useCallback(async (lat: number, lng: number) => {
+    try {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
+      );
+      const data = await response.json();
       
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
-        iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
-      });
+      if (data.results?.[0]) {
+        setNewLocation(prev => ({
+          ...prev,
+          address: data.results[0].formatted_address
+        }));
+      }
+    } catch (error) {
+      console.error('Error reverse geocoding:', error);
     }
   }, []);
+  
+  // Update the map click handler to use the map instance directly
+  const handleMapClick = useCallback((e: L.LeafletMouseEvent) => {
+    if (!isAddingLocation) return;
+    
+    const { lat, lng } = e.latlng;
+    
+    // Update the new location with the clicked coordinates
+    setNewLocation(prev => ({
+      ...prev,
+      lat,
+      lng
+    }));
+    
+    // Open the dialog
+    setIsDialogOpen(true);
+    
+    // Turn off adding mode
+    setIsAddingLocation(false);
+    
+    // Reverse geocode the location
+    reverseGeocode(lat, lng);
+  }, [isAddingLocation, reverseGeocode, setNewLocation, setIsDialogOpen, setIsAddingLocation]);
+  
+  // Update the marker drag end handler
+  const handleMarkerDragEnd = useCallback((e: L.DragEndEvent) => {
+    const marker = e.target;
+    const position = marker.getLatLng();
+    
+    setNewLocation(prev => ({
+      ...prev,
+      lat: position.lat,
+      lng: position.lng
+    }));
+    
+    reverseGeocode(position.lat, position.lng);
+  }, [reverseGeocode, setNewLocation]);
+  
+  // Handle map initialization
+  useEffect(() => {
+    console.log(`DEBUG: MapView component mounted`);
+    
+    // Initialize the map
+    getOrCreateMapInstance(MAP_CONTAINER_ID, center, 13)
+      .then((map) => {
+        console.log("DEBUG: Map instance obtained");
+        mapRef.current = map;
+        setIsMapInitialized(true);
+        
+        // Force a resize to ensure the map renders correctly
+        setTimeout(() => {
+          map.invalidateSize();
+          console.log("DEBUG: Map size invalidated");
+          
+          // Check container dimensions
+          const container = document.getElementById(MAP_CONTAINER_ID);
+          if (container) {
+            console.log(`DEBUG: Container dimensions after invalidateSize: ${container.clientWidth}x${container.clientHeight}`);
+          }
+        }, 100);
+        
+        // Set up map click handler
+        map.on('click', handleMapClick);
+        
+        // Update map center
+        map.setView(center, 13);
+        
+        // Clear existing markers
+        map.eachLayer((layer) => {
+          if (layer instanceof L.Marker) {
+            map.removeLayer(layer);
+          }
+        });
+        
+        // Add location markers
+        locations.forEach((location) => {
+          const marker = L.marker(
+            [location.lat, location.lng],
+            { icon: getSportIcon(location.sports?.[0]?.sportId || 'basketball') }
+          ).addTo(map);
+          
+          // Add popup
+          marker.bindPopup(`
+            <div class="p-2">
+              <h3 class="font-semibold">${location.name}</h3>
+              <p class="text-sm">${location.address}</p>
+              <div class="mt-2 space-y-1">
+                <p class="text-sm">
+                  ${location.venueType === 'indoor' ? '🏢 Indoor' : '🌳 Outdoor'} Facility
+                </p>
+                ${(location.sports || []).map(sport => `
+                  <div class="flex items-center gap-2">
+                    <p class="text-sm">
+                      ${sport.sportId.charAt(0).toUpperCase() + sport.sportId.slice(1)}: ${sport.courtCount} courts
+                    </p>
+                  </div>
+                `).join('')}
+                ${location.hasLights ? `
+                  <p class="text-sm flex items-center">
+                    <span class="mr-1">🌙</span> Available for night play
+                  </p>
+                ` : ''}
+                <p class="text-sm">
+                  Access: ${formatAccessType(location.accessType)}
+                  ${location.accessType === ACCESS_TYPES.PAID && location.hourlyRate ? 
+                    ` ($${location.hourlyRate}/hour)` : ''}
+                </p>
+              </div>
+              ${user && location.createdBy === user.uid ? `
+                <button 
+                  class="mt-2 px-2 py-1 bg-red-500 text-white rounded text-sm"
+                  onclick="window.deleteLocation('${location.id}')"
+                >
+                  Delete
+                </button>
+              ` : ''}
+            </div>
+          `);
+        });
+        
+        // Add preview marker for new location
+        if (isDialogOpen && newLocation.lat && newLocation.lng) {
+          const marker = L.marker(
+            [newLocation.lat, newLocation.lng],
+            { 
+              icon: getSportIcon(selectedSport?.id || 'basketball'),
+              draggable: true
+            }
+          ).addTo(map);
+          
+          // Add drag events
+          marker.on('dragstart', () => setIsDraggingMarker(true));
+          marker.on('dragend', (e) => {
+            setIsDraggingMarker(false);
+            handleMarkerDragEnd(e);
+          });
+          
+          // Add popup
+          marker.bindPopup(`
+            <div class="p-2">
+              <h3 class="font-semibold">${newLocation.name || 'New Location'}</h3>
+              <p class="text-sm">${newLocation.address || 'Adjusting location...'}</p>
+              ${isDraggingMarker ? `
+                <p class="text-xs text-blue-600 mt-1">Release to set new position</p>
+              ` : `
+                <p class="text-xs text-muted-foreground mt-1">Drag marker to adjust position</p>
+              `}
+            </div>
+          `);
+        }
+        
+        // Add user location marker if available
+        if (userLocation) {
+          const marker = L.marker(
+            userLocation,
+            {
+              icon: L.divIcon({
+                className: 'user-location-marker',
+                html: '<div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white"></div>',
+                iconSize: [16, 16],
+                iconAnchor: [8, 8],
+              })
+            }
+          ).addTo(map);
+          
+          marker.bindPopup('Your Location');
+        }
+      })
+      .catch((error) => {
+        console.error("DEBUG: Error obtaining map instance", error);
+        setError("Failed to initialize map. Please try again.");
+      });
+    
+    // Add a global function to handle location deletion
+    (window as any).deleteLocation = (locationId: string) => {
+      handleDeleteLocation(locationId);
+    };
+    
+    return () => {
+      console.log(`DEBUG: MapView component unmounting`);
+      
+      // Remove the click handler
+      if (mapRef.current) {
+        mapRef.current.off('click', handleMapClick);
+      }
+      
+      // Remove the global function
+      delete (window as any).deleteLocation;
+      
+      // We don't destroy the map instance here because it's global
+      // This prevents the "Map container is already initialized" error
+    };
+  }, [center, locations, isDialogOpen, newLocation, userLocation, selectedSport, isDraggingMarker, user, handleMapClick, reverseGeocode, handleMarkerDragEnd]);
+  
+  // Function to handle map initialization
+  const handleMapReady = useCallback((map: L.Map) => {
+    console.log("DEBUG: Map ready callback fired");
+    mapRef.current = map;
+    setIsMapInitialized(true);
+  }, []);
 
-  // Debug Google Maps API key and environment
+  // Enhance the existing debug logging
   useEffect(() => {
     console.log("DEBUG: MapView component mounted");
     console.log("DEBUG: Google Maps API Key (masked):", 
@@ -181,8 +649,11 @@ export default function MapView() {
     console.log("DEBUG: Selected sport:", selectedSport);
     console.log("DEBUG: User authenticated:", !!user);
     console.log("DEBUG: Using mock data:", useMockData);
+    console.log("DEBUG: Map center:", center);
+    console.log("DEBUG: Locations count:", locations.length);
+    console.log("DEBUG: Map type:", mapType);
     
-    // Only check for Leaflet CSS in browser environment
+    // Check for Leaflet CSS and script loading
     if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       // Check if Leaflet CSS is loaded
       const leafletCssLoaded = document.querySelector('link[href*="leaflet.css"]');
@@ -190,8 +661,33 @@ export default function MapView() {
       
       // Check if window.L is available (Leaflet global)
       console.log("DEBUG: Leaflet global available:", typeof L !== 'undefined');
+      
+      // Check for map container
+      const mapContainer = document.querySelector('.leaflet-container');
+      console.log("DEBUG: Leaflet container found:", !!mapContainer);
+      if (mapContainer) {
+        console.log("DEBUG: Leaflet container dimensions:", 
+          (mapContainer as HTMLElement).offsetWidth, "x", 
+          (mapContainer as HTMLElement).offsetHeight);
+      }
+      
+      // Check browser compatibility
+      console.log("DEBUG: Browser:", navigator.userAgent);
+      console.log("DEBUG: Window dimensions:", window.innerWidth, "x", window.innerHeight);
+      console.log("DEBUG: Device pixel ratio:", window.devicePixelRatio);
+      
+      // Check for WebGL support (needed for some map features)
+      let webglSupported = false;
+      try {
+        const canvas = document.createElement('canvas');
+        webglSupported = !!(window.WebGLRenderingContext && 
+          (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+      } catch (e) {
+        webglSupported = false;
+      }
+      console.log("DEBUG: WebGL supported:", webglSupported);
     }
-  }, [isLoaded, selectedSport, user, useMockData]);
+  }, [isLoaded, selectedSport, user, useMockData, center, locations, mapType]);
 
   // Test Firebase connection
   useEffect(() => {
@@ -308,13 +804,13 @@ export default function MapView() {
         const mockLocation: ExtendedLocation = {
           id: `mock-${Date.now()}`,
           ...newLocation as Omit<ExtendedLocation, 'id'>,
-          sportId: selectedSport?.id || 'basketball',
+          sports: [{ sportId: selectedSport?.id || 'basketball', courtCount: 1 }],
           createdBy: user.uid,
           createdAt: Date.now(),
         };
         
         setLocations(prev => [...prev, mockLocation]);
-        setNewLocation({ name: '', address: '', lat: 0, lng: 0, courtCount: 1, hasLights: false, accessType: 'public', venueType: 'outdoor', sports: [] });
+        setNewLocation({ name: '', address: '', lat: 0, lng: 0, hasLights: false, accessType: 'public', venueType: 'outdoor', sports: [] });
         setIsDialogOpen(false);
         
         toast({
@@ -329,7 +825,7 @@ export default function MapView() {
       
       const locationData: Omit<ExtendedLocation, 'id'> = {
         ...newLocation as Omit<ExtendedLocation, 'id'>,
-        sportId: selectedSport?.id || 'basketball',
+        sports: [{ sportId: selectedSport?.id || 'basketball', courtCount: 1 }],
         createdBy: user.uid,
         createdAt: Date.now(),
       };
@@ -338,7 +834,7 @@ export default function MapView() {
       const newLocationWithId = { ...locationData, id: docRef.id };
       
       setLocations(prev => [...prev, newLocationWithId]);
-      setNewLocation({ name: '', address: '', lat: 0, lng: 0, courtCount: 1, hasLights: false, accessType: 'public', venueType: 'outdoor', sports: [] });
+      setNewLocation({ name: '', address: '', lat: 0, lng: 0, hasLights: false, accessType: 'public', venueType: 'outdoor', sports: [] });
       setIsDialogOpen(false);
       
       toast({
@@ -397,48 +893,6 @@ export default function MapView() {
       });
     }
   };
-
-  const handleMapClick = useCallback(async (e: L.LeafletMouseEvent) => {
-    if (!isAddingLocation) return;
-    
-    const { lat, lng } = e.latlng;
-    
-    try {
-      // Reverse geocode the clicked location
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
-      );
-      const data = await response.json();
-      
-      if (data.results?.[0]) {
-        setNewLocation(prev => ({
-          ...prev,
-          address: data.results[0].formatted_address,
-          lat,
-          lng,
-          sports: selectedSport ? [{ sportId: selectedSport.id, courtCount: 1 }] : []
-        }));
-      } else {
-        setNewLocation(prev => ({
-          ...prev,
-          lat,
-          lng,
-          sports: selectedSport ? [{ sportId: selectedSport.id, courtCount: 1 }] : []
-        }));
-      }
-    } catch (error) {
-      console.error('Error reverse geocoding:', error);
-      setNewLocation(prev => ({
-        ...prev,
-        lat,
-        lng,
-        sports: selectedSport ? [{ sportId: selectedSport.id, courtCount: 1 }] : []
-      }));
-    }
-    
-    setIsDialogOpen(true);
-    setIsAddingLocation(false);
-  }, [isAddingLocation, selectedSport]);
 
   // Add function to handle sport selection
   const handleSportSelection = (sportId: string, checked: boolean) => {
@@ -520,74 +974,166 @@ export default function MapView() {
     );
   }, [toast]);
 
-  // Get tile layer URL based on map type
-  const getTileLayerUrl = () => {
-    if (mapType === 'satellite') {
+  // Function to get the tile layer URL based on the map type
+  const getTileLayerUrl = (type: 'street' | 'satellite') => {
+    if (type === 'satellite') {
       return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-    } else {
-      return 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
     }
+    return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   };
 
+  // Function to get the tile layer attribution
   const getTileLayerAttribution = () => {
-    if (mapType === 'satellite') {
-      return 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community';
-    } else {
-      return '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-    }
+    return mapType === 'satellite' 
+      ? 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+      : '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>';
   };
 
-  // Handle marker drag end
-  const handleMarkerDragEnd = useCallback((event: L.DragEndEvent) => {
-    const marker = event.target;
-    const position = marker.getLatLng();
-    const { lat, lng } = position;
-    
-    // Update location with new coordinates
-    setNewLocation(prev => ({
-      ...prev,
-      lat,
-      lng
-    }));
-    
-    // Reverse geocode the new position
-    fetchAddressFromCoordinates(lat, lng);
-  }, []);
-  
-  // Fetch address from coordinates
-  const fetchAddressFromCoordinates = useCallback(async (lat: number, lng: number) => {
+  // Load Leaflet CSS on mount
+  useEffect(() => {
     try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
-      );
-      const data = await response.json();
+      loadLeafletCss();
       
-      if (data.results?.[0]) {
-        setNewLocation(prev => ({
-          ...prev,
-          address: data.results[0].formatted_address
-        }));
+      // Clean up any existing map instances first
+      cleanupExistingMap();
+      
+      // Simple direct DOM manipulation approach
+      if (typeof window !== 'undefined') {
+        // Check if Leaflet is already loaded
+        if (window.L) {
+          console.log("DEBUG: Leaflet already loaded, initializing map");
+          initializeMap();
+        } else {
+          // Create a script to load Leaflet
+          console.log("DEBUG: Loading Leaflet script");
+          const script = document.createElement('script');
+          script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+          script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+          script.crossOrigin = '';
+          
+          script.onload = () => {
+            console.log("DEBUG: Leaflet script loaded");
+            initializeMap();
+          };
+          
+          script.onerror = (error) => {
+            console.error("DEBUG: Error loading Leaflet script", error);
+            setError("Failed to load map resources. Please refresh the page.");
+          };
+          
+          // Add the script to the document
+          document.head.appendChild(script);
+        }
       }
+      
+      // Function to initialize the map
+      function initializeMap() {
+        // Wait for the DOM to be ready
+        setTimeout(() => {
+          try {
+            // Clean up any existing map instances first
+            cleanupExistingMap();
+            
+            const container = document.getElementById(MAP_CONTAINER_ID);
+            if (!container) {
+              console.error(`DEBUG: Container ${MAP_CONTAINER_ID} not found`);
+              // Instead of failing, retry after a short delay
+              setTimeout(initializeMap, 500);
+              return;
+            }
+            
+            console.log(`DEBUG: Container ${MAP_CONTAINER_ID} found with dimensions: ${container.clientWidth}x${container.clientHeight}`);
+            
+            // Create the map
+            console.log("DEBUG: Creating new map instance");
+            const L = window.L;
+            const map = L.map(MAP_CONTAINER_ID).setView([30.2672, -97.7431], 13);
+            
+            // Add the tile layer based on the current mapType
+            const tileLayer = L.tileLayer(getTileLayerUrl(mapType), {
+              maxZoom: 19,
+              attribution: getTileLayerAttribution()
+            }).addTo(map);
+            
+            // Store the tile layer in a property on the map for later reference
+            (map as any).currentTileLayer = tileLayer;
+            
+            // Add a marker
+            L.marker([30.2672, -97.7431]).addTo(map)
+              .bindPopup('Austin, TX')
+              .openPopup();
+            
+            // Store the map instance
+            mapRef.current = map;
+            globalMapInstance = map;
+            setIsMapInitialized(true);
+            
+            console.log("DEBUG: Map initialized directly");
+            
+            // Force a resize after a short delay
+            setTimeout(() => {
+              map.invalidateSize();
+              console.log("DEBUG: Map size invalidated");
+            }, 500);
+          } catch (error) {
+            console.error("DEBUG: Error initializing map directly", error);
+            setError("Failed to initialize map. Please refresh the page.");
+          }
+        }, 500);
+      }
+      
+      // Cleanup when component unmounts
+      return () => {
+        console.log("DEBUG: Component unmounting, cleaning up map");
+        // We don't destroy the map instance here because it might be reused
+        // But we do need to remove event listeners
+        if (mapRef.current) {
+          mapRef.current.off();
+          mapRef.current = null;
+        }
+      };
     } catch (error) {
-      console.error('Error reverse geocoding:', error);
+      console.error("DEBUG: Unexpected error in map initialization", error);
+      setError("An unexpected error occurred. Please refresh the page.");
     }
   }, []);
 
-  // Add debug rendering
-  if (loading) {
-    return <div className="flex items-center justify-center h-[80vh]">
-      <Loader2 className="h-8 w-8 animate-spin mr-2" />
-      <p>Loading...</p>
-    </div>;
-  }
+  // Function to toggle map type
+  const toggleMapType = useCallback(() => {
+    const newMapType = mapType === 'street' ? 'satellite' : 'street';
+    setMapType(newMapType);
+    
+    // Update the tile layer if the map is initialized
+    if (mapRef.current) {
+      const map = mapRef.current;
+      
+      // Remove the current tile layer
+      if ((map as any).currentTileLayer) {
+        map.removeLayer((map as any).currentTileLayer);
+      }
+      
+      // Add the new tile layer
+      const tileLayer = L.tileLayer(getTileLayerUrl(newMapType), {
+        maxZoom: 19,
+        attribution: getTileLayerAttribution()
+      }).addTo(map);
+      
+      // Store the new tile layer
+      (map as any).currentTileLayer = tileLayer;
+      
+      console.log(`DEBUG: Map type changed to ${newMapType}`);
+    }
+  }, [mapType]);
 
+  // Only render the map if the component is mounted and there's no error
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-4">
         <div className="text-center mb-4">
-          <h2 className="text-xl font-bold mb-2">Error Loading Map</h2>
+          <h2 className="text-xl font-bold mb-2">Error</h2>
           <p className="text-muted-foreground mb-4">{error}</p>
           <Button onClick={() => {
+            setError(null);
             if (typeof window !== 'undefined') {
               window.location.reload();
             }
@@ -596,13 +1142,51 @@ export default function MapView() {
       </div>
     );
   }
-
+  
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center h-[80vh]">
+        <Loader2 className="h-8 w-8 animate-spin mr-2" />
+        <p>Checking authentication...</p>
+      </div>
+    );
+  }
+  
   if (!user) {
     return (
       <div className="w-full h-[calc(100vh-4rem)] flex items-center justify-center">
         <p>Please log in to view and add locations.</p>
       </div>
     );
+  }
+
+  if (!isMapInitialized) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-muted/20">
+        <div className="flex flex-col items-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          <p className="mt-4 text-sm text-muted-foreground">Initializing map...</p>
+        </div>
+        
+        {/* Create an empty container for the map - make sure it exists but is hidden */}
+        <div 
+          id={MAP_CONTAINER_ID} 
+          style={{ 
+            position: 'absolute', 
+            visibility: 'hidden',
+            height: "100%", 
+            width: "100%" 
+          }}
+        ></div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-[80vh]">
+      <Loader2 className="h-8 w-8 animate-spin mr-2" />
+      <p>Loading...</p>
+    </div>;
   }
 
   return (
@@ -633,7 +1217,7 @@ export default function MapView() {
           variant="secondary"
           size="sm"
           className="flex items-center gap-2"
-          onClick={() => setMapType(mapType === 'street' ? 'satellite' : 'street')}
+          onClick={toggleMapType}
           disabled={isAddingLocation}
         >
           <Layers className="h-4 w-4" />
@@ -662,142 +1246,19 @@ export default function MapView() {
         </div>
       )}
       
-      <MapContainer
-        center={center}
-        zoom={13}
-        className={`w-full h-full ${isAddingLocation ? 'cursor-crosshair' : ''}`}
-        style={{ height: 'calc(100vh - 8rem)', minHeight: '500px' }}
-        zoomControl={true}
-        attributionControl={true}
-        doubleClickZoom={true}
-        scrollWheelZoom={true}
-        dragging={true}
-        easeLinearity={0.35}
-      >
-        <MapUpdater center={center} />
-        <MapClickHandler onMapClick={handleMapClick} />
-        <TileLayer
-          attribution={getTileLayerAttribution()}
-          url={getTileLayerUrl()}
-        />
-        
-        {/* Existing Locations */}
-        {locations.map((location) => (
-          <Marker
-            key={location.id}
-            position={[location.lat, location.lng]}
-            icon={getSportIcon(location.sports?.[0]?.sportId || 'basketball')}
-          >
-            <Popup>
-              <div className="p-2">
-                <h3 className="font-semibold">{location.name}</h3>
-                <p className="text-sm">{location.address}</p>
-                <div className="mt-2 space-y-1">
-                  <p className="text-sm">
-                    {location.venueType === 'indoor' ? '🏢 Indoor' : '🌳 Outdoor'} Facility
-                  </p>
-                  {(location.sports || []).map(sport => (
-                    <div key={sport.sportId} className="flex items-center gap-2">
-                      {React.createElement(SportMarkers[sport.sportId as keyof typeof SportMarkers], {
-                        className: 'w-4 h-4'
-                      })}
-                      <p className="text-sm">
-                        {sport.sportId.charAt(0).toUpperCase() + sport.sportId.slice(1)}: {sport.courtCount} courts
-                      </p>
-                    </div>
-                  ))}
-                  {location.hasLights && (
-                    <p className="text-sm flex items-center">
-                      <span className="mr-1">🌙</span> Available for night play
-                    </p>
-                  )}
-                  <p className="text-sm">
-                    Access: {formatAccessType(location.accessType)}
-                    {location.accessType === ACCESS_TYPES.PAID && location.hourlyRate && 
-                      ` ($${location.hourlyRate}/hour)`
-                    }
-                  </p>
-                </div>
-                {location.createdBy === user.uid && (
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        className="mt-2"
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Location</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Are you sure you want to delete this location? This action cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => location.id && handleDeleteLocation(location.id)}
-                        >
-                          Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                )}
-              </div>
-            </Popup>
-          </Marker>
-        ))}
-
-        {/* Preview marker for new location */}
-        {isDialogOpen && newLocation.lat && newLocation.lng && (
-          <Marker
-            position={[newLocation.lat, newLocation.lng]}
-            icon={getSportIcon(selectedSport?.id || 'basketball')}
-            draggable={true}
-            eventHandlers={{
-              dragstart: () => setIsDraggingMarker(true),
-              dragend: (e) => {
-                setIsDraggingMarker(false);
-                handleMarkerDragEnd(e);
-              }
-            }}
-          >
-            <Popup>
-              <div className="p-2">
-                <h3 className="font-semibold">{newLocation.name || 'New Location'}</h3>
-                <p className="text-sm">{newLocation.address || 'Adjusting location...'}</p>
-                {isDraggingMarker && (
-                  <p className="text-xs text-blue-600 mt-1">Release to set new position</p>
-                )}
-                {!isDraggingMarker && (
-                  <p className="text-xs text-muted-foreground mt-1">Drag marker to adjust position</p>
-                )}
-              </div>
-            </Popup>
-          </Marker>
-        )}
-
-        {/* Add user location marker if available */}
-        {userLocation && (
-          <Marker
-            position={userLocation}
-            icon={L.divIcon({
-              className: 'user-location-marker',
-              html: '<div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white"></div>',
-              iconSize: [16, 16],
-              iconAnchor: [8, 8],
-            })}
-          >
-            <Popup>Your Location</Popup>
-          </Marker>
-        )}
-      </MapContainer>
-
+      {/* Map Container - make sure it's visible and has proper dimensions */}
+      <div 
+        id={MAP_CONTAINER_ID} 
+        className="w-full h-full"
+        style={{ 
+          height: 'calc(100vh - 8rem)', 
+          minHeight: '500px',
+          position: 'relative',
+          zIndex: 1,
+          border: '1px solid #ccc'
+        }}
+      ></div>
+      
       {/* Add Location Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
@@ -1002,7 +1463,6 @@ export default function MapView() {
                 address: '', 
                 lat: 0, 
                 lng: 0, 
-                courtCount: 1,
                 hasLights: false,
                 accessType: 'public' as AccessType,
                 venueType: 'outdoor' as VenueType,

@@ -23,6 +23,49 @@ service cloud.firestore {
       
       // Allow write only to own document
       allow write: if isAuthenticated() && isOwner(userId);
+      
+      // Allow access to friends subcollection
+      match /friends/{friendId} {
+        allow read: if isAuthenticated() && isOwner(userId);
+        allow write: if isAuthenticated() && isOwner(userId);
+      }
+      
+      // Allow access to pendingFriends subcollection
+      match /pendingFriends/{friendId} {
+        allow read: if isAuthenticated() && isOwner(userId);
+        allow write: if isAuthenticated() && isOwner(userId);
+      }
+    }
+    
+    // Friend Requests collection rules
+    match /friendRequests/{requestId} {
+      // Allow read if the request is from or to the authenticated user
+      allow read: if isAuthenticated() && 
+                   (resource.data.fromUserId == request.auth.uid || 
+                    resource.data.toUserId == request.auth.uid);
+      
+      // Allow create if authenticated and the request is from the authenticated user
+      allow create: if isAuthenticated() && 
+                     request.resource.data.fromUserId == request.auth.uid;
+      
+      // Allow update/delete if the request is from or to the authenticated user
+      allow update, delete: if isAuthenticated() && 
+                             (resource.data.fromUserId == request.auth.uid || 
+                              resource.data.toUserId == request.auth.uid);
+    }
+
+    // Notifications collection rules
+    match /notifications/{notificationId} {
+      // Allow read if the notification is for the authenticated user
+      allow read: if isAuthenticated() && 
+                   resource.data.toUserId == request.auth.uid;
+      
+      // Allow create if authenticated
+      allow create: if isAuthenticated();
+      
+      // Allow update/delete if the notification is for the authenticated user
+      allow update, delete: if isAuthenticated() && 
+                             resource.data.toUserId == request.auth.uid;
     }
 
     // Teams collection rules

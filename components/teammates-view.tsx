@@ -84,12 +84,25 @@ export default function TeammatesView() {
         
         setFriends(friendsData)
         
-        // Get pending friend requests
-        const pendingFriendsRef = collection(db, "users", user.uid, "pendingFriends")
-        const pendingSnapshot = await getDocs(pendingFriendsRef)
+        // Get pending friend requests from the friendRequests collection
+        const pendingRequestsQuery = query(
+          collection(db, "friendRequests"),
+          where("toUserId", "==", user.uid),
+          where("status", "==", "pending")
+        )
+        const pendingSnapshot = await getDocs(pendingRequestsQuery)
         
         const pendingFriendsData = pendingSnapshot.docs.map(doc => {
-          return { id: doc.id, ...doc.data(), isPending: true } as User & { isPending: boolean }
+          const data = doc.data()
+          return { 
+            id: data.fromUserId,
+            firstName: data.fromUserName.split(' ')[0] || '',
+            lastName: data.fromUserName.split(' ')[1] || '',
+            email: data.fromUserEmail,
+            photoURL: data.fromUserPhoto,
+            requestId: doc.id,
+            isPending: true 
+          } as User & { requestId: string, isPending: boolean }
         })
         
         // Set pending friends
@@ -203,19 +216,46 @@ export default function TeammatesView() {
     setIsLoading(prev => ({ ...prev, addFriend: true }))
     
     try {
+      console.log("Starting friend request process for:", friendId);
+      
       // Get the friend's data to include in the notification
       const friendDocRef = doc(db, "users", friendId)
       const friendDocSnap = await getDoc(friendDocRef)
       const friendData = friendDocSnap.data()
+      
+      console.log("Friend data:", friendData);
       
       // Get current user's data
       const userDocRef = doc(db, "users", user.uid)
       const userDocSnap = await getDoc(userDocRef)
       const userData = userDocSnap.data()
       
+      console.log("User data:", userData);
+      
+      // Create a unique ID for the friend request
+      const requestId = `${user.uid}_${friendId}`
+      
+      console.log("Creating friend request with ID:", requestId);
+      
+      // Create the friend request in the friendRequests collection
+      const friendRequestRef = doc(db, "friendRequests", requestId)
+      await setDoc(friendRequestRef, {
+        fromUserId: user.uid,
+        toUserId: friendId,
+        fromUserName: `${userData?.firstName} ${userData?.lastName}`,
+        fromUserEmail: user.email || "",
+        fromUserPhoto: user.photoURL || "",
+        toUserName: `${friendData?.firstName} ${friendData?.lastName}`,
+        toUserEmail: friendData?.email || "",
+        status: "pending",
+        createdAt: Date.now()
+      })
+      
+      console.log("Friend request created successfully");
+      
       // Create a notification for the friend
       const notificationsRef = collection(db, "notifications")
-      await addDoc(notificationsRef, {
+      const notificationData = {
         type: 'friend_request',
         fromUserId: user.uid,
         toUserId: friendId,
@@ -225,20 +265,23 @@ export default function TeammatesView() {
         data: {
           fromUserName: `${userData?.firstName} ${userData?.lastName}`,
           fromUserPhoto: user.photoURL || null,
-          fromUserEmail: user.email
+          fromUserEmail: user.email,
+          requestId: requestId
         }
-      })
+      };
       
-      // Add to pending friends collection
-      const pendingFriendRef = doc(db, "users", friendId, "pendingFriends", user.uid)
-      await setDoc(pendingFriendRef, {
-        id: user.uid,
-        firstName: userData?.firstName || "",
-        lastName: userData?.lastName || "",
-        email: user.email || "",
-        photoURL: user.photoURL || "",
-        requestedAt: Date.now()
-      })
+      console.log("Creating notification with data:", notificationData);
+      console.log("Notification toUserId:", friendId);
+      console.log("Current user ID:", user.uid);
+      
+      // Double-check that we're not sending a notification to ourselves
+      if (friendId === user.uid) {
+        throw new Error("Cannot send a friend request to yourself");
+      }
+      
+      const notificationDoc = await addDoc(notificationsRef, notificationData);
+      
+      console.log("Notification created with ID:", notificationDoc.id);
       
       toast({
         title: "Friend request sent",

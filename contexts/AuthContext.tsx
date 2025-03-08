@@ -52,53 +52,113 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authInitialized, setAuthInitialized] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Check for corrupted auth state in localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        // Try to access localStorage - this can throw in some browsers with privacy settings
+        const localStorageAvailable = (() => {
+          try {
+            const testKey = '__test__';
+            localStorage.setItem(testKey, testKey);
+            localStorage.removeItem(testKey);
+            return true;
+          } catch (e) {
+            return false;
+          }
+        })();
+
+        if (localStorageAvailable) {
+          // Check for corrupted Firebase auth data
+          const firebaseLocalStorageKeys = Object.keys(localStorage).filter(
+            key => key.startsWith('firebase:') || key.includes('firebase')
+          );
+          
+          for (const key of firebaseLocalStorageKeys) {
+            try {
+              // Try to parse the JSON data
+              const data = localStorage.getItem(key);
+              if (data) JSON.parse(data);
+            } catch (error) {
+              console.error(`Corrupted auth data found in localStorage key: ${key}`, error);
+              // Clear the corrupted data
+              localStorage.removeItem(key);
+              setAuthError('Corrupted authentication data detected and cleared. Please refresh the page.');
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking localStorage:', error);
+      }
+    }
+  }, []);
 
   // Initialize auth state
   useEffect(() => {
     console.log('Setting up auth state listener');
     let isMounted = true;
 
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      console.log('Auth state changed:', user ? 'User logged in' : 'No user');
-      
-      if (!isMounted) return;
+    try {
+      const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        console.log('Auth state changed:', user ? 'User logged in' : 'No user');
+        
+        if (!isMounted) return;
 
-      if (user) {
-        try {
-          await user.getIdToken(true);
-          console.log('Auth token refreshed');
-          
-          // Update last login timestamp
-          const userRef = doc(db, 'users', user.uid);
-          const userDoc = await getDoc(userRef);
-          
-          if (userDoc.exists()) {
-            await setDoc(userRef, { lastLoginAt: Date.now() }, { merge: true });
+        if (user) {
+          try {
+            await user.getIdToken(true);
+            console.log('Auth token refreshed');
+            
+            // Update last login timestamp
+            const userRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userRef);
+            
+            if (userDoc.exists()) {
+              await setDoc(userRef, { lastLoginAt: Date.now() }, { merge: true });
+            }
+          } catch (error) {
+            console.error('Error refreshing auth token:', error);
+            // Handle token refresh errors gracefully
+            if (error instanceof Error) {
+              setAuthError(`Authentication error: ${error.message}. Please try logging in again.`);
+            }
           }
-        } catch (error) {
-          console.error('Error refreshing auth token:', error);
         }
-      }
-      
-      setUser(user);
+        
+        setUser(user);
+        setLoading(false);
+        setAuthInitialized(true);
+      }, (error) => {
+        // This is the error handler for onAuthStateChanged
+        console.error('Auth state change error:', error);
+        setAuthError('Authentication error. Please refresh and try again.');
+        setLoading(false);
+        setAuthInitialized(true);
+      });
+
+      // Handle the case where Firebase auth is slow to initialize
+      const timeoutId = setTimeout(() => {
+        if (isMounted && !authInitialized) {
+          console.log('Auth initialization timeout - forcing initialized state');
+          setAuthInitialized(true);
+          setLoading(false);
+        }
+      }, 2000); // 2 second timeout
+
+      return () => {
+        isMounted = false;
+        clearTimeout(timeoutId);
+        unsubscribe();
+      };
+    } catch (error) {
+      console.error('Error setting up auth state listener:', error);
+      setAuthError('Failed to initialize authentication. Please refresh the page.');
       setLoading(false);
       setAuthInitialized(true);
-    });
-
-    // Handle the case where Firebase auth is slow to initialize
-    const timeoutId = setTimeout(() => {
-      if (isMounted && !authInitialized) {
-        console.log('Auth initialization timeout - forcing initialized state');
-        setAuthInitialized(true);
-        setLoading(false);
-      }
-    }, 2000); // 2 second timeout
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timeoutId);
-      unsubscribe();
-    };
+      return () => {};
+    }
   }, [authInitialized]);
 
   // Periodically refresh token
@@ -299,10 +359,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
   };
 
+  // Show error message if auth initialization failed
+  if (authError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-4 text-center">
+        <h2 className="text-xl font-bold text-red-600 mb-4">Authentication Error</h2>
+        <p className="mb-4">{authError}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          Refresh Page
+        </button>
+      </div>
+    );
+  }
+
+  // Show loading state during auth initialization
+  if (!authInitialized) {
+    return <AuthLoader />;
+  }
+
   return (
     <AuthContext.Provider value={value}>
       {children}
-      {loading && !authInitialized && <AuthLoader />}
     </AuthContext.Provider>
   );
 }

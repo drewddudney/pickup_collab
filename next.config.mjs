@@ -14,7 +14,15 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    unoptimized: true,
+    // Enable image optimization for better quality on mobile
+    unoptimized: false,
+    // Configure image domains for external images
+    domains: ['unpkg.com', 'lh3.googleusercontent.com'],
+    // Set image quality and formats
+    formats: ['image/webp', 'image/avif'],
+    // Configure image sizes for responsive images
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
   },
   experimental: {
     webpackBuildWorker: true,

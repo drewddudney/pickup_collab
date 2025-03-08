@@ -22,7 +22,7 @@ export default function LoginPage() {
   // Show loading state
   if (loading && !authInitialized) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center p-24">
+      <main className="flex min-h-screen flex-col items-center justify-center p-4 sm:p-24">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="mt-2 text-sm text-muted-foreground">Loading...</p>
       </main>
@@ -31,8 +31,8 @@ export default function LoginPage() {
 
   return (
     <AuthLayout>
-      <main className="flex min-h-screen flex-col items-center justify-center p-24">
-        <div className="w-full max-w-[400px]">
+      <main className="flex min-h-screen flex-col items-center justify-center p-4 sm:p-24">
+        <div className="w-full max-w-[400px] mx-auto">
           <LoginForm />
         </div>
       </main>

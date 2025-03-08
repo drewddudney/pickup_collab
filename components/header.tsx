@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu"
 import { User, Settings, LogOut } from "lucide-react"
-import { useCallback, useState } from "react"
+import { useCallback, useState, useMemo } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/contexts/AuthContext"
 import { SportSelector } from "@/components/sport-selector"
@@ -39,7 +39,41 @@ export function Header() {
     }
   }, [logout, isLoggingOut]);
 
-  const userInitials = user?.email ? user.email[0].toUpperCase() : '?'
+  // Generate user initials from name or email
+  const userInitials = useMemo(() => {
+    if (user?.displayName) {
+      // Get initials from display name (first letter of first and last name)
+      const nameParts = user.displayName.split(' ');
+      if (nameParts.length > 1) {
+        return (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase();
+      }
+      return nameParts[0][0].toUpperCase();
+    }
+    
+    if (user?.email) {
+      return user.email[0].toUpperCase();
+    }
+    
+    return '?';
+  }, [user]);
+
+  // Generate a background color based on the user's ID for the avatar
+  const avatarColor = useMemo(() => {
+    if (!user?.uid) return 'bg-primary';
+    
+    // Generate a color based on the user's UID
+    const colors = [
+      'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500',
+      'bg-lime-500', 'bg-green-500', 'bg-emerald-500', 'bg-teal-500',
+      'bg-cyan-500', 'bg-sky-500', 'bg-blue-500', 'bg-indigo-500',
+      'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500', 'bg-pink-500',
+      'bg-rose-500'
+    ];
+    
+    // Use the sum of character codes to pick a color
+    const sum = user.uid.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return colors[sum % colors.length];
+  }, [user]);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -57,8 +91,10 @@ export function Header() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Avatar className="h-8 w-8 cursor-pointer">
-                <AvatarImage src={user?.photoURL || ''} />
-                <AvatarFallback>{userInitials}</AvatarFallback>
+                <AvatarImage src={user?.photoURL || ''} alt={user?.displayName || user?.email || 'User'} />
+                <AvatarFallback className={avatarColor + " text-white"}>
+                  {userInitials}
+                </AvatarFallback>
               </Avatar>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="z-50">

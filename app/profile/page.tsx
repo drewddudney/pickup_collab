@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
-import { doc, getDoc, setDoc } from "firebase/firestore"
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore"
 import { Calendar, Home, Map, Users, Upload, Camera, X } from "lucide-react"
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage"
 
@@ -25,8 +25,6 @@ import { Header } from "@/components/header"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Label } from "@/components/ui/label"
-import { FirebaseDebug } from "@/components/firebase-debug"
-import { GoogleMapsTest } from "@/components/google-maps-test"
 
 const profileFormSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -97,7 +95,7 @@ type SportFormValues =
 export default function ProfilePage() {
   const router = useRouter()
   const { toast } = useToast()
-  const { user } = useAuth()
+  const { user, updateUserProfile } = useAuth()
   const { selectedSport } = useSport()
   const [isLoading, setIsLoading] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
@@ -242,27 +240,39 @@ export default function ProfilePage() {
       const userDocRef = doc(db, getUserProfilePath(user.uid))
       
       // Update profile fields including profile picture
-      await setDoc(userDocRef, {
+      const updatedProfile = {
         firstName: data.firstName,
         lastName: data.lastName,
         profilePicture: profilePicture
-      }, { merge: true })
+      };
+      
+      await setDoc(userDocRef, updatedProfile, { merge: true })
+      
+      // Update the user's profile in Firebase Auth if available
+      if (typeof updateUserProfile === 'function') {
+        await updateUserProfile({
+          displayName: `${data.firstName} ${data.lastName}`,
+          photoURL: profilePicture || undefined
+        });
+      }
+      
+      // Update auth user's photoURL directly as a fallback
+      if (auth.currentUser && profilePicture) {
+        await updateDoc(userDocRef, {
+          photoURL: profilePicture
+        });
+        
+        // Force refresh the auth token to update the profile
+        await auth.currentUser.getIdToken(true);
+      }
       
       toast({
         title: "Profile updated",
-        description: "Your profile information has been updated successfully.",
+        description: "Your profile has been updated successfully.",
       })
       
-      // Update local state
-      setUserProfile(prev => {
-        if (!prev) return null
-        return {
-          ...prev,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          profilePicture: profilePicture
-        }
-      })
+      // Reload the page to reflect changes
+      window.location.reload();
     } catch (error) {
       console.error("Error updating profile:", error)
       toast({
@@ -966,16 +976,6 @@ export default function ProfilePage() {
                   </Card>
                 </TabsContent>
               </Tabs>
-            </div>
-            
-            {/* Add Firebase Debug component */}
-            <div className="mt-8">
-              <FirebaseDebug />
-            </div>
-            
-            {/* Add Google Maps API Test component */}
-            <div className="mt-8">
-              <GoogleMapsTest />
             </div>
           </div>
           

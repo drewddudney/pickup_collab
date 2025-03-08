@@ -9,11 +9,16 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  updateProfile,
+  updateProfile as firebaseUpdateProfile,
 } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
-import { Loader2 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
+
+interface ProfileUpdateOptions {
+  displayName?: string;
+  photoURL?: string;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -23,7 +28,7 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
-  updateUserProfile: (firstName: string, lastName: string) => Promise<void>;
+  updateUserProfile: (options: ProfileUpdateOptions) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -39,14 +44,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Loading component to show during auth initialization
 function AuthLoader() {
-  return (
-    <div className="fixed inset-0 flex items-center justify-center bg-background z-50">
-      <div className="flex flex-col items-center gap-2">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
-    </div>
-  );
+  return <Loading fullScreen />;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -149,6 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           firstName,
           lastName,
           email,
+          profilePicture: user.photoURL,
           createdAt: Date.now(),
           lastLoginAt: Date.now(),
           authProvider: 'google'
@@ -156,7 +155,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         // Existing user - update last login
         await setDoc(userRef, { 
-          lastLoginAt: Date.now() 
+          lastLoginAt: Date.now(),
+          profilePicture: user.photoURL || userDoc.data().profilePicture
         }, { merge: true });
       }
       
@@ -208,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('Email sign up successful');
       
       // Update user profile with display name
-      await updateProfile(result.user, {
+      await firebaseUpdateProfile(result.user, {
         displayName: `${firstName} ${lastName}`
       });
       
@@ -239,26 +239,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
   
-  const updateUserProfile = async (firstName: string, lastName: string) => {
+  const updateUserProfile = async (options: ProfileUpdateOptions) => {
     if (!user) throw new Error('No user logged in');
     
     try {
       // Update Firebase Auth profile
-      await updateProfile(user, {
-        displayName: `${firstName} ${lastName}`
-      });
+      await firebaseUpdateProfile(user, options);
+      
+      // Force a token refresh to update the user object
+      await user.getIdToken(true);
       
       // Update Firestore profile
       const userRef = doc(db, 'users', user.uid);
-      await setDoc(userRef, {
-        firstName,
-        lastName,
-        updatedAt: Date.now()
-      }, { merge: true });
+      const updateData: Record<string, any> = {};
       
-      // Force refresh the user object
+      if (options.displayName) {
+        const nameParts = options.displayName.split(' ');
+        updateData.firstName = nameParts[0] || '';
+        updateData.lastName = nameParts.slice(1).join(' ') || '';
+      }
+      
+      if (options.photoURL) {
+        updateData.profilePicture = options.photoURL;
+      }
+      
+      await setDoc(userRef, updateData, { merge: true });
+      
+      // Update local user state to reflect changes
       setUser({ ...user });
       
+      console.log('User profile updated successfully');
     } catch (error) {
       console.error('Error updating user profile:', error);
       throw error;

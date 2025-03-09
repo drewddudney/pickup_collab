@@ -746,10 +746,16 @@ export default function MapView() {
           markerZoomAnimation: false
         });
         
+        // Store a reference to the current state in the map object
+        (map as any)._isAddingLocation = isAddingLocation;
+        
         // Add tile layer based on current mapType
         const addTileLayer = () => {
+          console.log("DEBUG: Adding tile layer for map type:", mapType);
+          
           // Remove existing tile layer if any
           if ((map as any).currentTileLayer) {
+            console.log("DEBUG: Removing existing tile layer");
             map.removeLayer((map as any).currentTileLayer);
           }
           
@@ -757,6 +763,8 @@ export default function MapView() {
           const tileUrl = mapType === 'satellite' 
             ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
             : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+            
+          console.log("DEBUG: Using tile URL:", tileUrl);
             
           // Get attribution based on map type
           const attribution = mapType === 'satellite'
@@ -768,6 +776,8 @@ export default function MapView() {
             attribution: attribution,
             maxZoom: 19
           }).addTo(map);
+          
+          console.log("DEBUG: Tile layer added successfully");
           
           // Store reference to the tile layer
           (map as any).currentTileLayer = tileLayer;
@@ -783,9 +793,13 @@ export default function MapView() {
         // Set up click handler
         map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
           console.log("DEBUG: Map click event:", e);
-          console.log("DEBUG: isAddingLocation:", isAddingLocation);
           
-          if (isAddingLocation) {
+          // Get the current state directly from the map object
+          const currentIsAddingLocation = (map as any)._isAddingLocation;
+          console.log("DEBUG: isAddingLocation from map object:", currentIsAddingLocation);
+          console.log("DEBUG: isAddingLocation from React state:", isAddingLocation);
+          
+          if (currentIsAddingLocation) {
             console.log("DEBUG: Adding location at:", e.latlng);
             
             // Update the new location with the clicked coordinates
@@ -800,6 +814,10 @@ export default function MapView() {
             
             // Turn off adding mode
             setIsAddingLocation(false);
+            (map as any)._isAddingLocation = false;
+            
+            // Reset cursor
+            map.getContainer().style.cursor = '';
             
             // Reverse geocode the location
             reverseGeocode(e.latlng.lat, e.latlng.lng);
@@ -811,9 +829,61 @@ export default function MapView() {
         
         // Add method to update map type
         window.updateMapType = (type: 'street' | 'satellite') => {
-          console.log("DEBUG: Updating map type to:", type);
+          console.log("DEBUG: Global updateMapType called with:", type);
+          
+          // Update React state
           setMapType(type);
-          addTileLayer();
+          
+          // Update tile layer directly
+          if (mapRef.current) {
+            console.log("DEBUG: Updating tile layer directly");
+            
+            // Remove existing tile layer
+            if ((mapRef.current as any).currentTileLayer) {
+              console.log("DEBUG: Removing existing tile layer");
+              mapRef.current.removeLayer((mapRef.current as any).currentTileLayer);
+            }
+            
+            // Get tile URL based on map type
+            const tileUrl = type === 'satellite' 
+              ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+              : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+              
+            console.log("DEBUG: Using tile URL:", tileUrl);
+              
+            // Get attribution based on map type
+            const attribution = type === 'satellite'
+              ? 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+              : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+            
+            // Add the tile layer
+            const tileLayer = window.L.tileLayer(tileUrl, {
+              attribution: attribution,
+              maxZoom: 19
+            }).addTo(mapRef.current);
+            
+            console.log("DEBUG: Tile layer added successfully");
+            
+            // Store reference to the tile layer
+            (mapRef.current as any).currentTileLayer = tileLayer;
+          }
+        };
+        
+        // Add method to toggle pin drop mode
+        window.togglePinDropMode = (enable: boolean) => {
+          console.log("DEBUG: Global togglePinDropMode called with:", enable);
+          
+          // Update React state
+          setIsAddingLocation(enable);
+          
+          // Update map state directly
+          if (mapRef.current) {
+            (mapRef.current as any)._isAddingLocation = enable;
+            console.log("DEBUG: Updated map._isAddingLocation to:", enable);
+            
+            // Update cursor
+            mapRef.current.getContainer().style.cursor = enable ? 'crosshair' : '';
+          }
         };
         
         // Add method to get current location
@@ -866,17 +936,6 @@ export default function MapView() {
           }
         };
         
-        // Add method to toggle pin drop mode
-        window.togglePinDropMode = (enable: boolean) => {
-          console.log("DEBUG: Global togglePinDropMode called with:", enable);
-          setIsAddingLocation(enable);
-          
-          // Update cursor
-          if (mapRef.current) {
-            mapRef.current.getContainer().style.cursor = enable ? 'crosshair' : '';
-          }
-        };
-        
         // Mark as initialized
         setIsMapInitialized(true);
         console.log("DEBUG: Map successfully initialized");
@@ -916,9 +975,12 @@ export default function MapView() {
       if (mapRef.current) {
         console.log("DEBUG: Cleaning up map");
         mapRef.current.off('click');
-        delete (window as any).deleteLocation;
-        delete (window as any).updateMapType;
-        delete (window as any).getCurrentLocation;
+        
+        // Use type assertion to fix delete operator errors
+        (window as any).deleteLocation = undefined;
+        (window as any).updateMapType = undefined;
+        (window as any).togglePinDropMode = undefined;
+        (window as any).getCurrentLocation = undefined;
       }
     };
   }, [center, mapType, isAddingLocation, reverseGeocode, toast, handleDeleteLocation]);
@@ -1202,10 +1264,15 @@ export default function MapView() {
           size="sm"
           className="flex items-center gap-2"
           onClick={() => {
+            console.log("DEBUG: Satellite view button clicked, current map type:", mapType);
+            const newMapType = mapType === 'street' ? 'satellite' : 'street';
+            console.log("DEBUG: Setting map type to:", newMapType);
+            
             if (typeof window.updateMapType === 'function') {
-              window.updateMapType(mapType === 'street' ? 'satellite' : 'street');
+              window.updateMapType(newMapType);
+            } else {
+              setMapType(newMapType);
             }
-            setMapType(mapType === 'street' ? 'satellite' : 'street');
           }}
           disabled={isAddingLocation}
         >

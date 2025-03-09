@@ -94,7 +94,7 @@ export default function Home() {
       >
         <div className="flex flex-col h-screen">
           <Header />
-          <main className="flex-1 overflow-auto pb-16">
+          <main className="flex-1 overflow-auto pb-20">
             <Tabs 
               value={activeAppTab} 
               onValueChange={handleTabChange} 
@@ -132,7 +132,7 @@ export default function Home() {
                 <PlayerSearchContent />
               </TabsContent>
               
-              <TabsList className="fixed bottom-0 left-0 right-0 h-16 grid grid-cols-4 bg-background border-t">
+              <TabsList className="fixed bottom-0 left-0 right-0 h-16 grid grid-cols-4 bg-background border-t z-50">
                 <TabsTrigger value="home" className="flex flex-col items-center justify-center">
                   <HomeIcon className="h-5 w-5" />
                   <span className="text-xs">Home</span>
@@ -190,10 +190,10 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-2 mb-4">
-                  <TabsTrigger value="login">Login</TabsTrigger>
-                  <TabsTrigger value="signup">Sign Up</TabsTrigger>
+                  <TabsTrigger value="login" className="text-center">Login</TabsTrigger>
+                  <TabsTrigger value="signup" className="text-center">Sign Up</TabsTrigger>
                 </TabsList>
                 <TabsContent value="login">
                   <LoginForm onForgotPassword={() => setActiveView('forgot-password')} />

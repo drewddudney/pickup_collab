@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu"
 import { User, Settings, LogOut } from "lucide-react"
-import { useCallback, useState, useMemo, useEffect } from "react"
+import { useCallback, useState, useMemo, useRef, useEffect } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/contexts/AuthContext"
 import { SportSelector } from "@/components/sport-selector"
@@ -21,31 +21,34 @@ export function Header() {
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const { activeTab, setActiveTab } = useAppContext()
   const [avatarKey, setAvatarKey] = useState(Date.now())
+  const lastRefreshTimeRef = useRef<number>(Date.now())
 
-  // Refresh user data periodically to ensure profile picture is up to date
+  // Refresh user data with throttling to prevent excessive refreshes
   useEffect(() => {
-    // Refresh user data when component mounts
+    // Only refresh on mount, not on every render
     if (refreshUser) {
       refreshUser();
+      lastRefreshTimeRef.current = Date.now();
     }
 
-    // Set up an interval to refresh user data less frequently (every 5 minutes instead of every minute)
+    // Set up an interval to refresh user data less frequently (every 5 minutes)
     const intervalId = setInterval(() => {
-      if (refreshUser) {
+      const now = Date.now();
+      // Only refresh if it's been at least 5 minutes since the last refresh
+      if (refreshUser && (now - lastRefreshTimeRef.current > 300000)) {
         refreshUser();
-        // Update avatar key to force re-render
-        setAvatarKey(Date.now());
+        setAvatarKey(now);
+        lastRefreshTimeRef.current = now;
       }
-    }, 300000); // 5 minutes (300000ms) instead of 1 minute
+    }, 300000); // 5 minutes
 
-    // Also refresh when tab becomes active, but only if it's been at least 5 minutes since the last refresh
-    let lastRefreshTime = Date.now();
+    // Also refresh when tab becomes active, but only if it's been at least 5 minutes
     const handleVisibilityChange = () => {
       const now = Date.now();
-      if (document.visibilityState === 'visible' && refreshUser && (now - lastRefreshTime > 300000)) {
+      if (document.visibilityState === 'visible' && refreshUser && (now - lastRefreshTimeRef.current > 300000)) {
         refreshUser();
-        setAvatarKey(Date.now());
-        lastRefreshTime = now;
+        setAvatarKey(now);
+        lastRefreshTimeRef.current = now;
       }
     };
     
@@ -56,7 +59,7 @@ export function Header() {
       clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [refreshUser]);
+  }, []); // Empty dependency array to run only on mount
 
   // Don't render if no user
   if (!user) return null;

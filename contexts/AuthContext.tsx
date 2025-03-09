@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import {
   User,
   GoogleAuthProvider,
@@ -54,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authInitialized, setAuthInitialized] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const previousUserRef = useRef<User | null>(null);
 
   // Check for corrupted auth state in localStorage
   useEffect(() => {
@@ -353,15 +354,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!auth.currentUser) return;
     
     try {
-      // Don't force a token refresh every time - this is causing quota exceeded errors
-      // Only update the user state with the current user data
-      setUser({ ...auth.currentUser });
+      // Only update the user state if the user data has actually changed
+      // This prevents infinite update loops
+      const currentUser = auth.currentUser;
+      const prevUser = previousUserRef.current;
       
-      console.log("User data refreshed");
+      // Check if user data has changed
+      if (
+        !prevUser || 
+        prevUser.displayName !== currentUser.displayName || 
+        prevUser.photoURL !== currentUser.photoURL || 
+        prevUser.email !== currentUser.email
+      ) {
+        // Update the previous user ref
+        previousUserRef.current = { ...currentUser };
+        
+        // Update the user state
+        setUser({ ...currentUser });
+        
+        console.log("User data refreshed");
+      } else {
+        console.log("User data unchanged, skipping refresh");
+      }
     } catch (error) {
       console.error("Error refreshing user data:", error);
     }
   };
+
+  // Update previousUserRef when user changes
+  useEffect(() => {
+    if (user) {
+      previousUserRef.current = user;
+    }
+  }, [user]);
 
   const value = {
     user,

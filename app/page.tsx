@@ -9,11 +9,13 @@ import { AuthLayout } from "@/app/auth-layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { useSearchParams } from 'next/navigation';
-import { ForgotPasswordForm } from "@/components/auth/ForgotPasswordForm";
 import dynamic from 'next/dynamic';
 import { Home as HomeIcon, Map, Calendar, Users, Bell } from 'lucide-react';
 import { Header } from '@/components/header';
 import { AppContextProvider } from '@/contexts/AppContext';
+
+// Import ForgotPasswordForm directly
+import { ForgotPasswordForm } from "../components/auth/ForgotPasswordForm";
 
 // Dynamically import content components with loading states
 const HomeContent = dynamic(() => import('@/app/home/page'), {
@@ -24,7 +26,8 @@ const MapView = dynamic(() => import('@/components/map-view'), {
   loading: () => <div className="flex justify-center items-center h-full"><Loading /></div>
 });
 
-const ScheduleContent = dynamic(() => import('@/app/schedule/page-content'), {
+// Update the import path for ScheduleContent
+const ScheduleContent = dynamic(() => import('../app/schedule/page-content'), {
   loading: () => <div className="flex justify-center items-center h-full"><Loading /></div>
 });
 

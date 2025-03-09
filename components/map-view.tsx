@@ -144,59 +144,72 @@ function loadLeafletCss() {
   link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
   link.crossOrigin = '';
   
-  // Append it to the head
+  // Add the link to the document head
   document.head.appendChild(link);
-  
-  // Mark as loaded
   leafletCssLoaded = true;
-  
   console.log("DEBUG: Leaflet CSS loaded");
 }
 
-// Function to safely destroy any existing map
+// Function to load Leaflet JS
+function loadLeafletJs(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (typeof window !== 'undefined' && window.L) {
+      console.log("DEBUG: Leaflet JS already loaded");
+      resolve();
+      return;
+    }
+    
+    if (typeof document === 'undefined') {
+      reject(new Error("Document not available"));
+      return;
+    }
+    
+    // Check if the script is already being loaded
+    const existingScript = document.querySelector('script[src*="leaflet.js"]');
+    if (existingScript) {
+      existingScript.addEventListener('load', () => {
+        console.log("DEBUG: Existing Leaflet script loaded");
+        resolve();
+      });
+      existingScript.addEventListener('error', (error) => {
+        console.error("DEBUG: Error loading existing Leaflet script", error);
+        reject(error);
+      });
+      return;
+    }
+    
+    // Create a new script element
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+    script.crossOrigin = '';
+    
+    script.onload = () => {
+      console.log("DEBUG: Leaflet script loaded");
+      resolve();
+    };
+    
+    script.onerror = (error) => {
+      console.error("DEBUG: Error loading Leaflet script", error);
+      reject(error);
+    };
+    
+    // Add the script to the document
+    document.head.appendChild(script);
+  });
+}
+
+// Function to clean up existing map instances
 function cleanupExistingMap() {
-  // Check if there's a global map instance
   if (globalMapInstance) {
-    console.log("DEBUG: Cleaning up existing global map instance");
     try {
-      globalMapInstance.off();
+      console.log("DEBUG: Cleaning up existing map instance");
       globalMapInstance.remove();
       globalMapInstance = null;
     } catch (error) {
-      console.error("DEBUG: Error cleaning up global map instance", error);
+      console.error("DEBUG: Error cleaning up map:", error);
     }
   }
-  
-  // Also check for any map containers in the DOM
-  if (typeof document !== 'undefined') {
-    // Find the container
-    const container = document.getElementById(MAP_CONTAINER_ID);
-    if (container) {
-      console.log("DEBUG: Cleaning up map container");
-      // Clear the container
-      container.innerHTML = '';
-      
-      // Remove any Leaflet-specific classes
-      container.className = container.className
-        .split(' ')
-        .filter(c => !c.startsWith('leaflet'))
-        .join(' ');
-    }
-    
-    // Also remove any other leaflet containers that might exist
-    document.querySelectorAll('.leaflet-container').forEach(el => {
-      if (el.id !== MAP_CONTAINER_ID) {
-        console.log("DEBUG: Removing extra leaflet container");
-        if (el.parentNode) {
-          el.parentNode.removeChild(el);
-        }
-      }
-    });
-  }
-  
-  // Reset the initialization state
-  isMapInitializing = false;
-  mapInitializationPromise = null;
 }
 
 // Function to safely initialize the map
@@ -222,85 +235,99 @@ function getOrCreateMapInstance(containerId: string, center: [number, number], z
   
   // Create a promise to initialize the map
   mapInitializationPromise = new Promise<L.Map>((resolve, reject) => {
-    try {
-      console.log("DEBUG: Creating new map instance");
-      
-      // Wait for the DOM to be ready and check multiple times for the container
-      let attempts = 0;
-      const maxAttempts = 10;
-      const checkInterval = 300; // Increased interval to reduce CPU usage
-      
-      const checkForContainer = () => {
-        // Check if the container exists
-        const container = document.getElementById(containerId);
-        
-        if (container && container.clientWidth > 0 && container.clientHeight > 0) {
-          console.log(`DEBUG: Container ${containerId} found with dimensions: ${container.clientWidth}x${container.clientHeight}`);
+    // First load Leaflet JS
+    loadLeafletJs()
+      .then(() => {
+        try {
+          console.log("DEBUG: Creating new map instance");
           
-          try {
-            // Fix Leaflet's icon paths
-            if (typeof window !== 'undefined') {
-              delete (L.Icon.Default.prototype as any)._getIconUrl;
+          // Wait for the DOM to be ready and check multiple times for the container
+          let attempts = 0;
+          const maxAttempts = 20; // Increase max attempts
+          const checkInterval = 300; // Increased interval to reduce CPU usage
+          
+          const checkForContainer = () => {
+            // Check if the container exists
+            const container = document.getElementById(containerId);
+            
+            if (container && container.clientWidth > 0 && container.clientHeight > 0) {
+              console.log(`DEBUG: Container ${containerId} found with dimensions: ${container.clientWidth}x${container.clientHeight}`);
               
-              L.Icon.Default.mergeOptions({
-                iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-                iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-                shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-              });
+              try {
+                // Fix Leaflet's icon paths
+                if (typeof window !== 'undefined' && window.L) {
+                  delete (window.L.Icon.Default.prototype as any)._getIconUrl;
+                  
+                  window.L.Icon.Default.mergeOptions({
+                    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+                    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+                    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+                  });
+                } else {
+                  console.error("DEBUG: window.L not available");
+                  reject(new Error("Leaflet not available"));
+                  return;
+                }
+                
+                // Create the map
+                const map = window.L.map(containerId, {
+                  center,
+                  zoom,
+                  zoomControl: true,
+                  attributionControl: true,
+                  // Add performance optimizations
+                  preferCanvas: true,
+                  renderer: window.L.canvas(),
+                });
+                
+                // Add the tile layer
+                window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                  maxZoom: 19,
+                }).addTo(map);
+                
+                // Store the map instance globally
+                globalMapInstance = map;
+                isMapInitializing = false;
+                mapInitializationPromise = null;
+                
+                console.log("DEBUG: Map initialization complete");
+                resolve(map);
+              } catch (error) {
+                console.error("DEBUG: Error creating map:", error);
+                isMapInitializing = false;
+                mapInitializationPromise = null;
+                reject(error);
+              }
+            } else {
+              attempts++;
+              if (attempts < maxAttempts) {
+                console.log(`DEBUG: Container ${containerId} not found or has zero dimensions, retrying (${attempts}/${maxAttempts})...`);
+                setTimeout(checkForContainer, checkInterval);
+              } else {
+                console.error(`DEBUG: Container ${containerId} not found after ${maxAttempts} attempts`);
+                isMapInitializing = false;
+                mapInitializationPromise = null;
+                reject(new Error(`Container ${containerId} not found after ${maxAttempts} attempts`));
+              }
             }
-            
-            // Create the map
-            const map = L.map(containerId, {
-              center,
-              zoom,
-              zoomControl: true,
-              attributionControl: true,
-              // Add performance optimizations
-              preferCanvas: true,
-              renderer: L.canvas(),
-            });
-            
-            // Add the tile layer
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-              maxZoom: 19,
-            }).addTo(map);
-            
-            // Store the map instance globally
-            globalMapInstance = map;
-            isMapInitializing = false;
-            mapInitializationPromise = null;
-            
-            console.log("DEBUG: Map initialization complete");
-            resolve(map);
-          } catch (error) {
-            console.error("DEBUG: Error creating map:", error);
-            isMapInitializing = false;
-            mapInitializationPromise = null;
-            reject(error);
-          }
-        } else {
-          attempts++;
-          if (attempts < maxAttempts) {
-            console.log(`DEBUG: Container ${containerId} not found or has zero dimensions, retrying (${attempts}/${maxAttempts})...`);
-            setTimeout(checkForContainer, checkInterval);
-          } else {
-            console.error(`DEBUG: Container ${containerId} not found after ${maxAttempts} attempts`);
-            isMapInitializing = false;
-            mapInitializationPromise = null;
-            reject(new Error(`Container ${containerId} not found after ${maxAttempts} attempts`));
-          }
+          };
+          
+          // Start checking for the container
+          setTimeout(checkForContainer, 100);
+        } catch (error) {
+          console.error("DEBUG: Error in map initialization:", error);
+          isMapInitializing = false;
+          mapInitializationPromise = null;
+          reject(error);
         }
-      };
-      
-      // Start checking for the container
-      setTimeout(checkForContainer, 100);
-    } catch (error) {
-      console.error("DEBUG: Error in map initialization:", error);
-      isMapInitializing = false;
-      mapInitializationPromise = null;
-      reject(error);
-    }
+      })
+      .catch((error) => {
+        console.error("DEBUG: Error loading Leaflet:", error);
+        isMapInitializing = false;
+        mapInitializationPromise = null;
+        reject(error);
+      });
   });
   
   return mapInitializationPromise;
@@ -488,12 +515,195 @@ export default function MapView() {
     }
   }, [authLoading, user?.uid]); // Only depend on auth state and user ID
 
+  // Optimize the fetchLocations function to prevent unnecessary re-renders
+  const fetchLocations = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log("DEBUG: Fetching locations from Firestore");
+      
+      const locationsRef = collection(db, 'locations');
+      const q = query(locationsRef);
+      const querySnapshot = await getDocs(q);
+      
+      const fetchedLocations: ExtendedLocation[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data() as ExtendedLocation;
+        fetchedLocations.push({
+          ...data,
+          id: doc.id
+        });
+      });
+      
+      console.log(`DEBUG: Fetched ${fetchedLocations.length} locations`);
+      setLocations(fetchedLocations);
+      
+      // Update filtered locations based on selected sport
+      setFilteredLocations(
+        selectedSport 
+          ? fetchedLocations.filter(location => 
+              location.sports?.some(sport => sport.sportId === selectedSport.id)
+            )
+          : fetchedLocations
+      );
+      
+    } catch (error) {
+      console.error("Error fetching locations:", error);
+      setError("Failed to load locations. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedSport]);
+
+  const handleAddLocation = async () => {
+    if (!user) return;
+    
+    if (!hasValidLocation(newLocation)) {
+      toast({
+        title: "Invalid location",
+        description: "Please provide a name, address, and valid coordinates.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    try {
+      // Prepare the location data
+      const locationData: Omit<ExtendedLocation, 'id'> = {
+        name: newLocation.name || '',
+        address: newLocation.address || '',
+        lat: newLocation.lat || 0,
+        lng: newLocation.lng || 0,
+        createdBy: user.uid,
+        createdAt: Date.now(),
+        hasLights: newLocation.hasLights || false,
+        accessType: newLocation.accessType || 'public',
+        hourlyRate: newLocation.hourlyRate || 0,
+        venueType: newLocation.venueType || 'outdoor',
+        sports: newLocation.sports || []
+      };
+      
+      // Add to Firestore
+      const docRef = await addDoc(collection(db, "locations"), locationData);
+      
+      // Add to local state with the new ID
+      const newLocationWithId: ExtendedLocation = {
+        ...locationData,
+        id: docRef.id
+      };
+      
+      setLocations(prev => [...prev, newLocationWithId]);
+      
+      toast({
+        title: "Success",
+        description: "Location added successfully!",
+      });
+      
+      // Reset form
+      setNewLocation({
+        name: '',
+        address: '',
+        lat: 0,
+        lng: 0,
+        hasLights: false,
+        accessType: 'public',
+        venueType: 'outdoor',
+        sports: []
+      });
+      
+      // Close dialog
+      setIsDialogOpen(false);
+      setIsAddingLocation(false);
+    } catch (error) {
+      console.error("Error adding location:", error);
+      toast({
+        title: "Error",
+        description: "Failed to add location. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleDeleteLocation = async (locationId: string) => {
+    if (!user) return;
+    
+    try {
+      // Delete from Firestore
+      await deleteDoc(doc(db, "locations", locationId));
+      
+      // Remove from local state
+      setLocations(prev => prev.filter(loc => loc.id !== locationId));
+      
+      toast({
+        title: "Success",
+        description: "Location deleted successfully!",
+      });
+    } catch (error) {
+      console.error("Error deleting location:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete location. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Add function to handle sport selection
+  const handleSportSelection = (sportId: string, checked: boolean) => {
+    setNewLocation(prev => ({
+      ...prev,
+      sports: checked
+        ? [...(prev.sports || []), { sportId, courtCount: 1 }]
+        : (prev.sports || []).filter(s => s.sportId !== sportId)
+    }));
+  };
+
+  // Add function to update court count for a sport
+  const handleCourtCountChange = (sportId: string, count: number) => {
+    setNewLocation(prev => ({
+      ...prev,
+      sports: (prev.sports || []).map(s =>
+        s.sportId === sportId ? { ...s, courtCount: count } : s
+      )
+    }));
+  };
+
   // Handle map initialization - OPTIMIZED to prevent multiple initializations
   useEffect(() => {
     console.log(`DEBUG: MapView component mounted`);
     
     if (!isMounted) {
       setIsMounted(true);
+      
+      // Make sure the map container exists with proper dimensions
+      const ensureMapContainer = () => {
+        let container = document.getElementById(MAP_CONTAINER_ID);
+        if (!container) {
+          console.log("DEBUG: Creating map container");
+          container = document.createElement('div');
+          container.id = MAP_CONTAINER_ID;
+          container.style.width = '100%';
+          container.style.height = 'calc(100vh - 8rem)';
+          container.style.minHeight = '500px';
+          container.style.position = 'relative';
+          container.style.zIndex = '1';
+          container.style.border = '1px solid #ccc';
+          
+          // Find the parent element to append to
+          const parent = document.querySelector('.map-container-parent');
+          if (parent) {
+            parent.appendChild(container);
+          } else {
+            // Fallback to body if no parent found
+            document.body.appendChild(container);
+          }
+        }
+      };
+      
+      // Ensure the container exists
+      ensureMapContainer();
       
       // Initialize the map only once
       getOrCreateMapInstance(MAP_CONTAINER_ID, center, 13)
@@ -533,7 +743,7 @@ export default function MapView() {
       // Remove the global function
       delete (window as any).deleteLocation;
     };
-  }, [isMounted]); // Only depend on isMounted to ensure it runs once
+  }, [isMounted, center, handleMapClick, handleDeleteLocation]);
 
   // SEPARATE useEffect for updating markers when locations or sport changes
   useEffect(() => {
@@ -696,161 +906,6 @@ export default function MapView() {
     
   }, [mapType, isMapInitialized]);
 
-  // Optimize the fetchLocations function to prevent unnecessary re-renders
-  const fetchLocations = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      console.log("DEBUG: Fetching locations from Firestore");
-      
-      const locationsRef = collection(db, 'locations');
-      const q = query(locationsRef);
-      const querySnapshot = await getDocs(q);
-      
-      const fetchedLocations: ExtendedLocation[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data() as ExtendedLocation;
-        fetchedLocations.push({
-          ...data,
-          id: doc.id
-        });
-      });
-      
-      console.log(`DEBUG: Fetched ${fetchedLocations.length} locations`);
-      setLocations(fetchedLocations);
-      
-      // Update filtered locations based on selected sport
-      setFilteredLocations(
-        selectedSport 
-          ? fetchedLocations.filter(location => 
-              location.sports?.some(sport => sport.sportId === selectedSport.id)
-            )
-          : fetchedLocations
-      );
-      
-    } catch (error) {
-      console.error("Error fetching locations:", error);
-      setError("Failed to load locations. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedSport]);
-
-  const handleAddLocation = async () => {
-    if (!user) return;
-    
-    if (!hasValidLocation(newLocation)) {
-      toast({
-        title: "Invalid location",
-        description: "Please provide a name, address, and valid coordinates.",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    try {
-      // Prepare the location data
-      const locationData: Omit<ExtendedLocation, 'id'> = {
-        name: newLocation.name || '',
-        address: newLocation.address || '',
-        lat: newLocation.lat || 0,
-        lng: newLocation.lng || 0,
-        createdBy: user.uid,
-        createdAt: Date.now(),
-        hasLights: newLocation.hasLights || false,
-        accessType: newLocation.accessType || 'public',
-        hourlyRate: newLocation.hourlyRate || 0,
-        venueType: newLocation.venueType || 'outdoor',
-        sports: newLocation.sports || []
-      };
-      
-      // Add to Firestore
-      const docRef = await addDoc(collection(db, "locations"), locationData);
-      
-      // Add to local state with the new ID
-      const newLocationWithId: ExtendedLocation = {
-        ...locationData,
-        id: docRef.id
-      };
-      
-      setLocations(prev => [...prev, newLocationWithId]);
-      
-      toast({
-        title: "Success",
-        description: "Location added successfully!",
-      });
-      
-      // Reset form
-      setNewLocation({
-        name: '',
-        address: '',
-        lat: 0,
-        lng: 0,
-        hasLights: false,
-        accessType: 'public',
-        venueType: 'outdoor',
-        sports: []
-      });
-      
-      // Close dialog
-      setIsDialogOpen(false);
-      setIsAddingLocation(false);
-    } catch (error) {
-      console.error("Error adding location:", error);
-      toast({
-        title: "Error",
-        description: "Failed to add location. Please try again.",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const handleDeleteLocation = async (locationId: string) => {
-    if (!user) return;
-    
-    try {
-      // Delete from Firestore
-      await deleteDoc(doc(db, "locations", locationId));
-      
-      // Remove from local state
-      setLocations(prev => prev.filter(loc => loc.id !== locationId));
-      
-      toast({
-        title: "Success",
-        description: "Location deleted successfully!",
-      });
-    } catch (error) {
-      console.error("Error deleting location:", error);
-      toast({
-        title: "Error",
-        description: "Failed to delete location. Please try again.",
-        variant: "destructive"
-      });
-    }
-  };
-
-  // Add function to handle sport selection
-  const handleSportSelection = (sportId: string, checked: boolean) => {
-    setNewLocation(prev => ({
-      ...prev,
-      sports: checked
-        ? [...(prev.sports || []), { sportId, courtCount: 1 }]
-        : (prev.sports || []).filter(s => s.sportId !== sportId)
-    }));
-  };
-
-  // Add function to update court count for a sport
-  const handleCourtCountChange = (sportId: string, count: number) => {
-    setNewLocation(prev => ({
-      ...prev,
-      sports: (prev.sports || []).map(s =>
-        s.sportId === sportId ? { ...s, courtCount: count } : s
-      )
-    }));
-  };
-
   // Create sport-specific icons
   const getSportIcon = useCallback((sportId: string) => {
     const sportMarker = SportMarkers[sportId as keyof typeof SportMarkers] || SportMarkers.basketball;
@@ -963,7 +1018,7 @@ export default function MapView() {
 
   if (!isMapInitialized) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-muted/20">
+      <div className="h-full w-full flex items-center justify-center bg-muted/20 map-container-parent">
         <div className="flex flex-col items-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
           <p className="mt-4 text-sm text-muted-foreground">Initializing map...</p>
@@ -991,7 +1046,7 @@ export default function MapView() {
   }
 
   return (
-    <div className="relative h-full">
+    <div className="relative h-full map-container-parent">
       {/* Map Controls - positioned above the map but below dialogs */}
       <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
         <Button
@@ -1059,7 +1114,7 @@ export default function MapView() {
           border: '1px solid #ccc'
         }}
       ></div>
-
+      
       {/* Add Location Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">

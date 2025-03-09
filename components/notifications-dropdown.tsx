@@ -126,25 +126,26 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
     }
   }
 
-  // Handle notification click to navigate to relevant section
+  // Handle notification click
   const handleNotificationClick = (notification: ExtendedNotification) => {
     // Mark as read
     markAsRead(notification.id);
     
-    // Navigate based on notification type
-    switch (notification.type) {
-      case "friend_request":
-        setActiveTab("teammates");
-        break;
-      case "game_invite":
-        setActiveTab("schedule");
-        break;
-      case "team_invite":
-        setActiveTab("teammates");
-        break;
-      default:
-        // Do nothing for other notification types
-        break;
+    // Navigate to notifications page
+    setActiveTab('notifications');
+    // The setActiveTab function in AppContext will handle the URL update
+    // through the onTabChange callback in the parent component
+    
+    // Close the dropdown (if applicable)
+    if (typeof document !== 'undefined') {
+      // Find and click any open dropdown trigger to close it
+      const openDropdown = document.querySelector('[data-state="open"]');
+      if (openDropdown) {
+        const trigger = openDropdown.querySelector('[data-radix-collection-item]');
+        if (trigger && 'click' in trigger) {
+          (trigger as HTMLElement).click();
+        }
+      }
     }
   };
 

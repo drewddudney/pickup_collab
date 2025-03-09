@@ -369,8 +369,9 @@ const libraries: Libraries = ['places'];
 export default function MapView() {
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
-  const { selectedSport } = useSport();
+  const { selectedSport, setSelectedSport, sports } = useSport();
   const [locations, setLocations] = useState<ExtendedLocation[]>([]);
+  const [filteredLocations, setFilteredLocations] = useState<ExtendedLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [useMockData, setUseMockData] = useState(false);
@@ -391,19 +392,19 @@ export default function MapView() {
   const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
   const [isDraggingMarker, setIsDraggingMarker] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
-  const [mapKey, setMapKey] = useState<string>(`map-${Date.now()}-${Math.random()}`);
+  const [mapKey, setMapKey] = useState<number>(Date.now());
   
   // Reference to the map instance
   const mapRef = useRef<L.Map | null>(null);
   
   // Use the constant map container ID instead of creating it in the component
   const [isMapInitialized, setIsMapInitialized] = useState(false);
-  
+
   const { isLoaded } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
     libraries,
   });
-  
+
   // Handle auth state changes
   useEffect(() => {
     if (!authLoading && !user) {
@@ -1125,6 +1126,25 @@ export default function MapView() {
     }
   }, [mapType]);
 
+  // Add effect to reset map when sport changes
+  useEffect(() => {
+    // Force map rerender when sport changes by updating the key
+    setMapKey(Date.now());
+    
+    // Reset selected location when sport changes
+    setNewLocation({ name: '', address: '', lat: 0, lng: 0, hasLights: false, accessType: 'public', venueType: 'outdoor', sports: [] });
+    
+    // Refilter locations based on new sport
+    if (locations.length > 0) {
+      const filtered = locations.filter(location => 
+        location.sports.some(sport => sport.sportId === selectedSport.id)
+      );
+      setFilteredLocations(filtered);
+    }
+    
+    console.log(`Sport changed to ${selectedSport.name}, forcing map rerender with key: ${Date.now()}`);
+  }, [selectedSport.id]); // Only depend on the sport ID, not the entire locations array
+
   // Only render the map if the component is mounted and there's no error
   if (error) {
     return (
@@ -1151,7 +1171,7 @@ export default function MapView() {
       </div>
     );
   }
-  
+
   if (!user) {
     return (
       <div className="w-full h-[calc(100vh-4rem)] flex items-center justify-center">
@@ -1258,7 +1278,7 @@ export default function MapView() {
           border: '1px solid #ccc'
         }}
       ></div>
-      
+
       {/* Add Location Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">

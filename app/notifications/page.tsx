@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Bell, Check, X, ArrowLeft } from "lucide-react"
+import { Bell, Check, X, ArrowLeft, Trash2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { Badge } from "@/components/ui/badge"
 import { Loader2 } from "lucide-react"
@@ -43,6 +43,7 @@ export default function NotificationsPage() {
   const { setActiveTab } = useAppContext()
   const [notifications, setNotifications] = useState<ExtendedNotification[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isClearingAll, setIsClearingAll] = useState(false)
 
   // Fetch notifications
   useEffect(() => {
@@ -282,6 +283,38 @@ export default function NotificationsPage() {
     }
   }
 
+  // Clear all notifications
+  const clearAllNotifications = async () => {
+    if (!user?.uid || notifications.length === 0) return
+    
+    setIsClearingAll(true)
+    try {
+      const batch = writeBatch(db)
+      
+      notifications.forEach(notification => {
+        const notificationRef = doc(db, "notifications", notification.id)
+        batch.delete(notificationRef)
+      })
+      
+      await batch.commit()
+      
+      setNotifications([])
+      toast({
+        title: "Success",
+        description: "All notifications have been cleared.",
+      })
+    } catch (error) {
+      console.error("Error clearing notifications:", error)
+      toast({
+        title: "Error",
+        description: "Failed to clear notifications. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsClearingAll(false)
+    }
+  }
+
   const goToHome = () => {
     setActiveTab('home');
   }
@@ -321,7 +354,30 @@ export default function NotificationsPage() {
             <CardTitle>Notifications</CardTitle>
             <CardDescription>Your recent notifications and alerts</CardDescription>
           </div>
-          <Button variant="outline" onClick={goToHome}>Back to Home</Button>
+          <div className="flex items-center">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={goToHome}
+              className="mr-2"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearAllNotifications}
+              disabled={isLoading || isClearingAll || notifications.length === 0}
+              className="flex items-center"
+            >
+              {isClearingAll ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Clear All
+            </Button>
+          </div>
         </CardHeader>
         
         <CardContent>

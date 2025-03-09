@@ -67,6 +67,11 @@ export default function Home() {
   // For authenticated users, we'll use this state for the main app tabs
   const [activeAppTab, setActiveAppTab] = useState<string>('home');
 
+  // Create a function to handle tab changes from both the UI and the context
+  const handleTabChange = (tab: string) => {
+    setActiveAppTab(tab);
+  };
+
   // Show loading state during auth initialization
   if (loading && !authInitialized) {
     return <Loading />;
@@ -75,11 +80,18 @@ export default function Home() {
   // If user is authenticated, show the main app with tabs
   if (authInitialized && user && !loading) {
     return (
-      <AppContextProvider initialTab={activeAppTab}>
+      <AppContextProvider 
+        initialTab={activeAppTab}
+        onTabChange={handleTabChange}
+      >
         <div className="flex flex-col h-screen">
           <Header />
           <main className="flex-1 overflow-auto pb-16">
-            <Tabs value={activeAppTab} onValueChange={setActiveAppTab} className="h-full">
+            <Tabs 
+              value={activeAppTab} 
+              onValueChange={handleTabChange} 
+              className="h-full"
+            >
               <TabsContent value="home" className="h-full">
                 <HomeContent />
               </TabsContent>

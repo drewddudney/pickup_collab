@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
 
 // Define the AppContext type
 interface AppContextType {
@@ -12,12 +12,33 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 // Create a provider component
-export function AppContextProvider({ children, initialTab = 'home' }: { children: ReactNode, initialTab?: string }) {
+export function AppContextProvider({ 
+  children, 
+  initialTab = 'home',
+  onTabChange
+}: { 
+  children: ReactNode, 
+  initialTab?: string,
+  onTabChange?: (tab: string) => void
+}) {
   const [activeTab, setActiveTab] = useState<string>(initialTab);
+  
+  // Update activeTab when initialTab changes
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+  
+  // Create a wrapped setActiveTab function that also calls the callback
+  const handleSetActiveTab = useCallback((tab: string) => {
+    setActiveTab(tab);
+    if (onTabChange) {
+      onTabChange(tab);
+    }
+  }, [onTabChange]);
   
   const value = {
     activeTab,
-    setActiveTab,
+    setActiveTab: handleSetActiveTab,
   };
   
   return (

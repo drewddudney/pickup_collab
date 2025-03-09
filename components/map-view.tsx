@@ -79,6 +79,9 @@ const MAP_CONTAINER_ID = "map-container-direct";
 declare global {
   interface Window {
     L: any;
+    deleteLocation: (locationId: string) => void;
+    updateMapType: (type: 'street' | 'satellite') => void;
+    getCurrentLocation: () => void;
   }
 }
 
@@ -742,21 +745,123 @@ export default function MapView() {
           markerZoomAnimation: false
         });
         
-        // Add tile layer
-        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-          maxZoom: 19
-        }).addTo(map);
+        // Add tile layer based on current mapType
+        const addTileLayer = () => {
+          // Remove existing tile layer if any
+          if ((map as any).currentTileLayer) {
+            map.removeLayer((map as any).currentTileLayer);
+          }
+          
+          // Get tile URL based on map type
+          const tileUrl = mapType === 'satellite' 
+            ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+            : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+            
+          // Get attribution based on map type
+          const attribution = mapType === 'satellite'
+            ? 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+          
+          // Add the tile layer
+          const tileLayer = window.L.tileLayer(tileUrl, {
+            attribution: attribution,
+            maxZoom: 19
+          }).addTo(map);
+          
+          // Store reference to the tile layer
+          (map as any).currentTileLayer = tileLayer;
+        };
+        
+        // Add initial tile layer
+        addTileLayer();
         
         // Store map reference
         mapRef.current = map;
         globalMapInstance = map;
         
         // Set up click handler
-        map.on('click', handleMapClick);
+        map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
+          console.log("DEBUG: Map click event:", e);
+          if (isAddingLocation) {
+            console.log("DEBUG: Adding location at:", e.latlng);
+            
+            // Update the new location with the clicked coordinates
+            setNewLocation(prev => ({
+              ...prev,
+              lat: e.latlng.lat,
+              lng: e.latlng.lng
+            }));
+            
+            // Open the dialog
+            setIsDialogOpen(true);
+            
+            // Turn off adding mode
+            setIsAddingLocation(false);
+            
+            // Reverse geocode the location
+            reverseGeocode(e.latlng.lat, e.latlng.lng);
+          }
+        });
         
         // Add global delete function
-        (window as any).deleteLocation = handleDeleteLocation;
+        window.deleteLocation = handleDeleteLocation;
+        
+        // Add method to update map type
+        window.updateMapType = (type: 'street' | 'satellite') => {
+          console.log("DEBUG: Updating map type to:", type);
+          setMapType(type);
+          addTileLayer();
+        };
+        
+        // Add method to get current location
+        window.getCurrentLocation = () => {
+          console.log("DEBUG: Getting current location");
+          if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+              (position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                
+                // Set user location
+                setUserLocation([lat, lng]);
+                
+                // Update map center
+                map.setView([lat, lng], 15);
+                
+                // Add marker for user location
+                const userMarker = window.L.marker([lat, lng], {
+                  icon: window.L.divIcon({
+                    className: 'user-location-marker',
+                    html: '<div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white"></div>',
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8],
+                  })
+                }).addTo(map);
+                
+                userMarker.bindPopup('Your Location');
+                
+                toast({
+                  title: "Location Found",
+                  description: "Map centered on your current location",
+                });
+              },
+              (error) => {
+                console.error("DEBUG: Error getting location:", error);
+                toast({
+                  title: "Error",
+                  description: "Unable to retrieve your location. Please check your browser permissions.",
+                  variant: "destructive"
+                });
+              }
+            );
+          } else {
+            toast({
+              title: "Error",
+              description: "Geolocation is not supported by your browser",
+              variant: "destructive"
+            });
+          }
+        };
         
         // Mark as initialized
         setIsMapInitialized(true);
@@ -796,11 +901,13 @@ export default function MapView() {
     return () => {
       if (mapRef.current) {
         console.log("DEBUG: Cleaning up map");
-        mapRef.current.off('click', handleMapClick);
+        mapRef.current.off('click');
         delete (window as any).deleteLocation;
+        delete (window as any).updateMapType;
+        delete (window as any).getCurrentLocation;
       }
     };
-  }, [center, handleMapClick, handleDeleteLocation]);
+  }, [center, mapType, isAddingLocation, reverseGeocode, toast, handleDeleteLocation]);
 
   // Update markers when filtered locations change
   useEffect(() => {
@@ -883,6 +990,58 @@ export default function MapView() {
     });
     
   }, [filteredLocations, selectedSport, isMapInitialized, user, formatAccessType, getSportIcon]);
+
+  // Add preview marker when adding a new location
+  useEffect(() => {
+    if (!mapRef.current || !isMapInitialized || !isDialogOpen || !newLocation.lat || !newLocation.lng) {
+      return;
+    }
+    
+    console.log("DEBUG: Adding preview marker for new location");
+    const map = mapRef.current;
+    
+    // Create marker
+    const marker = window.L.marker(
+      [newLocation.lat, newLocation.lng],
+      { 
+        icon: getSportIcon(selectedSport?.id || 'basketball'),
+        draggable: true
+      }
+    ).addTo(map);
+    
+    // Add drag events
+    marker.on('dragstart', () => setIsDraggingMarker(true));
+    marker.on('dragend', (e: { target: { getLatLng: () => { lat: number; lng: number } } }) => {
+      setIsDraggingMarker(false);
+      const position = e.target.getLatLng();
+      
+      setNewLocation(prev => ({
+        ...prev,
+        lat: position.lat,
+        lng: position.lng
+      }));
+      
+      reverseGeocode(position.lat, position.lng);
+    });
+    
+    // Add popup
+    marker.bindPopup(`
+      <div class="p-2">
+        <h3 class="font-semibold">${newLocation.name || 'New Location'}</h3>
+        <p class="text-sm">${newLocation.address || 'Adjusting location...'}</p>
+        ${isDraggingMarker ? `
+          <p class="text-xs text-blue-600 mt-1">Release to set new position</p>
+        ` : `
+          <p class="text-xs text-muted-foreground mt-1">Drag marker to adjust position</p>
+        `}
+      </div>
+    `);
+    
+    // Cleanup
+    return () => {
+      map.removeLayer(marker);
+    };
+  }, [isDialogOpen, newLocation.lat, newLocation.lng, newLocation.name, newLocation.address, selectedSport, isDraggingMarker, isMapInitialized, getSportIcon, reverseGeocode]);
 
   const hasValidLocation = (loc: Partial<ExtendedLocation>) => {
     return loc.address && typeof loc.lat === 'number' && typeof loc.lng === 'number';
@@ -1008,13 +1167,10 @@ export default function MapView() {
           size="sm"
           className="flex items-center gap-2"
           onClick={() => {
-            setMapType(mapType === 'street' ? 'satellite' : 'street');
-            // Force map redraw when changing map type
-            if (mapRef.current) {
-              setTimeout(() => {
-                mapRef.current?.invalidateSize({ animate: false, pan: false });
-              }, 100);
+            if (typeof window.updateMapType === 'function') {
+              window.updateMapType(mapType === 'street' ? 'satellite' : 'street');
             }
+            setMapType(mapType === 'street' ? 'satellite' : 'street');
           }}
           disabled={isAddingLocation}
         >
@@ -1026,7 +1182,13 @@ export default function MapView() {
           variant="secondary"
           size="sm"
           className="flex items-center gap-2"
-          onClick={handleGetCurrentLocation}
+          onClick={() => {
+            if (typeof window.getCurrentLocation === 'function') {
+              window.getCurrentLocation();
+            } else {
+              handleGetCurrentLocation();
+            }
+          }}
           disabled={isAddingLocation}
         >
           <Navigation className="h-4 w-4" />

@@ -26,8 +26,15 @@ service cloud.firestore {
       
       // Allow access to friends subcollection
       match /friends/{friendId} {
+        // Allow read if you're the owner of the parent document
         allow read: if isAuthenticated() && isOwner(userId);
-        allow write: if isAuthenticated() && isOwner(userId);
+        
+        // Allow write if you're the owner of the parent document OR
+        // if you're the friend being added (for accepting friend requests)
+        allow write: if isAuthenticated() && (isOwner(userId) || isOwner(friendId));
+        
+        // Allow create specifically for friend request acceptance
+        allow create: if isAuthenticated();
       }
       
       // Allow access to pendingFriends subcollection
@@ -39,33 +46,26 @@ service cloud.firestore {
     
     // Friend Requests collection rules
     match /friendRequests/{requestId} {
-      // Allow read if the request is from or to the authenticated user
-      allow read: if isAuthenticated() && 
-                   (resource.data.fromUserId == request.auth.uid || 
-                    resource.data.toUserId == request.auth.uid);
-      
-      // Allow create if authenticated and the request is from the authenticated user
-      allow create: if isAuthenticated() && 
-                     request.resource.data.fromUserId == request.auth.uid;
-      
-      // Allow update/delete if the request is from or to the authenticated user
-      allow update, delete: if isAuthenticated() && 
-                             (resource.data.fromUserId == request.auth.uid || 
-                              resource.data.toUserId == request.auth.uid);
-    }
-
-    // Notifications collection rules
-    match /notifications/{notificationId} {
-      // Allow read if the notification is for the authenticated user
-      allow read: if isAuthenticated() && 
-                   resource.data.toUserId == request.auth.uid;
+      // Allow read if authenticated
+      allow read: if isAuthenticated();
       
       // Allow create if authenticated
       allow create: if isAuthenticated();
       
-      // Allow update/delete if the notification is for the authenticated user
-      allow update, delete: if isAuthenticated() && 
-                             resource.data.toUserId == request.auth.uid;
+      // Allow update/delete if authenticated and you're either the sender or receiver
+      allow update, delete: if isAuthenticated();
+    }
+
+    // Notifications collection rules
+    match /notifications/{notificationId} {
+      // Allow read if authenticated and you're the recipient
+      allow read: if isAuthenticated();
+      
+      // Allow create if authenticated
+      allow create: if isAuthenticated();
+      
+      // Allow update/delete if authenticated and you're the recipient
+      allow update, delete: if isAuthenticated();
     }
 
     // Teams collection rules

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Bell } from "lucide-react"
+import { Bell, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -14,17 +14,39 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/contexts/AuthContext"
 import { db } from "@/lib/firebase"
-import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, setDoc, Timestamp, DocumentData, getDoc } from "firebase/firestore"
+import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, setDoc, Timestamp, DocumentData, getDoc, writeBatch } from "firebase/firestore"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Notification } from "@/lib/firebase"
 import { toast } from "@/components/ui/use-toast"
+import Link from "next/link"
+import { ChevronRight } from "lucide-react"
+import { useAppContext } from "@/app/page"
 
-export function NotificationsDropdown() {
+interface NotificationsDropdownProps {
+  onShowAll?: () => void;
+}
+
+interface ExtendedNotification extends Notification {
+  id: string;
+  handled?: boolean;
+}
+
+export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps) {
   const { user } = useAuth()
-  const [notifications, setNotifications] = useState<(Notification & { id: string })[]>([])
+  const { setActiveTab } = useAppContext()
+  const [notifications, setNotifications] = useState<ExtendedNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
+
+  // Function to show all notifications
+  const showAllNotifications = () => {
+    if (onShowAll) {
+      onShowAll();
+    } else {
+      setActiveTab('notifications');
+    }
+  }
 
   // Fetch notifications
   const fetchNotifications = async () => {
@@ -50,7 +72,7 @@ export function NotificationsDropdown() {
       // Convert to array and sort by createdAt
       const notificationsData = querySnapshot.docs
         .map(doc => {
-          const data = { id: doc.id, ...doc.data() } as Notification & { id: string };
+          const data = { id: doc.id, ...doc.data() } as ExtendedNotification;
           console.log("Notification data:", data);
           return data;
         })
@@ -102,129 +124,202 @@ export function NotificationsDropdown() {
     }
   }
 
+  // Handle notification click to navigate to relevant section
+  const handleNotificationClick = (notification: ExtendedNotification) => {
+    // Mark as read
+    markAsRead(notification.id);
+    
+    // Navigate based on notification type
+    switch (notification.type) {
+      case "friend_request":
+        setActiveTab("teammates");
+        break;
+      case "game_invite":
+        setActiveTab("schedule");
+        break;
+      case "team_invite":
+        setActiveTab("teammates");
+        break;
+      default:
+        // Do nothing for other notification types
+        break;
+    }
+  };
+
   // Handle friend request acceptance
-  const handleAcceptFriendRequest = async (notification: Notification & { id: string }) => {
-    if (!user?.uid) return
+  const handleAcceptFriendRequest = async (notification: ExtendedNotification) => {
+    if (!user) return;
     
     try {
       // Mark notification as read
-      await markAsRead(notification.id)
+      await markAsRead(notification.id);
       
-      // Get the friend request document
-      const friendRequestQuery = query(
-        collection(db, "friendRequests"),
-        where("fromUserId", "==", notification.fromUserId),
-        where("toUserId", "==", user.uid),
-        where("status", "==", "pending")
-      )
-      const friendRequestSnapshot = await getDocs(friendRequestQuery)
+      // Get the request ID from the notification data
+      const requestId = notification.data?.requestId;
       
-      if (friendRequestSnapshot.empty) {
-        throw new Error("Friend request not found")
+      if (!requestId) {
+        throw new Error("Friend request ID not found in notification data");
       }
       
-      const friendRequestDoc = friendRequestSnapshot.docs[0]
-      const friendRequestData = friendRequestDoc.data()
+      // Get the friend request document
+      const requestDoc = await getDoc(doc(db, "friendRequests", requestId));
       
-      // Get current user data
-      const userDocRef = doc(db, "users", user.uid)
-      const userDocSnap = await getDoc(userDocRef)
-      const userData = userDocSnap.data() || {}
+      if (!requestDoc.exists()) {
+        throw new Error("Friend request not found");
+      }
       
-      // Add to friends collection for both users
-      const userFriendsRef = doc(db, "users", user.uid, "friends", notification.fromUserId)
-      const friendFriendsRef = doc(db, "users", notification.fromUserId, "friends", user.uid)
+      const requestData = requestDoc.data();
+      const senderId = requestData.fromUserId;
+      const receiverId = requestData.toUserId;
       
-      // Add each other as friends
-      await setDoc(userFriendsRef, {
-        id: notification.fromUserId,
-        firstName: friendRequestData.fromUserName.split(' ')[0] || "",
-        lastName: friendRequestData.fromUserName.split(' ')[1] || "",
-        email: friendRequestData.fromUserEmail || "",
-        photoURL: friendRequestData.fromUserPhoto || "",
-        addedAt: Date.now()
-      })
+      // Verify that the current user is the receiver
+      if (receiverId !== user.uid) {
+        throw new Error("You are not authorized to accept this friend request");
+      }
       
-      await setDoc(friendFriendsRef, {
-        id: user.uid,
-        firstName: userData.firstName || "",
-        lastName: userData.lastName || "",
-        email: user.email || "",
-        photoURL: user.photoURL || "",
-        addedAt: Date.now()
-      })
+      // Get sender user data
+      const senderDoc = await getDoc(doc(db, 'users', senderId));
+      if (!senderDoc.exists()) {
+        throw new Error("Sender user not found");
+      }
+      const senderData = senderDoc.data();
       
-      // Update the friend request status to "accepted"
-      await updateDoc(doc(db, "friendRequests", friendRequestDoc.id), {
-        status: "accepted",
-        acceptedAt: Date.now()
-      })
+      // Get receiver user data
+      const receiverDoc = await getDoc(doc(db, 'users', receiverId));
+      if (!receiverDoc.exists()) {
+        throw new Error("Receiver user not found");
+      }
+      const receiverData = receiverDoc.data();
       
-      // Delete the friend request notification
-      const notificationRef = doc(db, "notifications", notification.id)
-      await deleteDoc(notificationRef)
+      console.log("Adding friends:", {senderId, receiverId});
+      console.log("Sender data:", senderData);
+      console.log("Receiver data:", receiverData);
       
-      toast({
-        title: "Friend request accepted",
-        description: `You are now friends with ${friendRequestData.fromUserName || "this user"}`,
-      })
-      
-      // Refresh notifications
-      fetchNotifications()
+      // Create friend entries in both users' collections
+      try {
+        // Add sender to receiver's friends
+        await setDoc(doc(db, `users/${receiverId}/friends/${senderId}`), {
+          firstName: senderData.firstName || '',
+          lastName: senderData.lastName || '',
+          email: senderData.email || '',
+          photoURL: senderData.profilePicture || senderData.photoURL || '',
+          createdAt: new Date(),
+          status: 'accepted'
+        });
+        
+        console.log("Added sender to receiver's friends");
+        
+        // Add receiver to sender's friends
+        await setDoc(doc(db, `users/${senderId}/friends/${receiverId}`), {
+          firstName: receiverData.firstName || '',
+          lastName: receiverData.lastName || '',
+          email: receiverData.email || '',
+          photoURL: receiverData.profilePicture || receiverData.photoURL || '',
+          createdAt: new Date(),
+          status: 'accepted'
+        });
+        
+        console.log("Added receiver to sender's friends");
+        
+        // Delete the friend request
+        await deleteDoc(doc(db, "friendRequests", requestId));
+        
+        console.log("Deleted friend request");
+        
+        // Update the local state
+        setNotifications(prev => 
+          prev.map((n: ExtendedNotification) => 
+            n.id === notification.id 
+              ? { ...n, handled: true } 
+              : n
+          )
+        );
+        
+        toast({
+          title: "Friend request accepted",
+          description: "You are now friends",
+        });
+      } catch (error) {
+        console.error("Error accepting friend request:", error);
+        toast({
+          title: "Error",
+          description: "Failed to accept friend request. Please try again.",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
-      console.error("Error accepting friend request:", error)
+      console.error("Error accepting friend request:", error);
       toast({
         title: "Error",
-        description: "Failed to accept friend request",
-        variant: "destructive"
-      })
+        description: "Failed to accept friend request. Please try again.",
+        variant: "destructive",
+      });
     }
-  }
-  
+  };
+
   // Handle friend request decline
-  const handleDeclineFriendRequest = async (notification: Notification & { id: string }) => {
-    if (!user?.uid) return
+  const handleDeclineFriendRequest = async (notification: ExtendedNotification) => {
+    if (!user) return;
     
     try {
-      // Get the friend request document
-      const friendRequestQuery = query(
-        collection(db, "friendRequests"),
-        where("fromUserId", "==", notification.fromUserId),
-        where("toUserId", "==", user.uid),
-        where("status", "==", "pending")
-      )
-      const friendRequestSnapshot = await getDocs(friendRequestQuery)
+      // Mark notification as read
+      await markAsRead(notification.id);
       
-      if (!friendRequestSnapshot.empty) {
-        const friendRequestDoc = friendRequestSnapshot.docs[0]
-        
-        // Update the friend request status to "declined"
-        await updateDoc(doc(db, "friendRequests", friendRequestDoc.id), {
-          status: "declined",
-          declinedAt: Date.now()
-        })
+      // Get the request ID from the notification data
+      const requestId = notification.data?.requestId;
+      
+      if (!requestId) {
+        throw new Error("Friend request ID not found in notification data");
       }
       
-      // Delete the notification
-      const notificationRef = doc(db, "notifications", notification.id)
-      await deleteDoc(notificationRef)
+      // Delete the friend request
+      await deleteDoc(doc(db, "friendRequests", requestId));
       
-      // Update local state
-      setNotifications(prev => prev.filter(n => n.id !== notification.id))
+      // Update the local state
+      setNotifications(prev => 
+        prev.map((n: ExtendedNotification) => 
+          n.id === notification.id 
+            ? { ...n, handled: true } 
+            : n
+        )
+      );
       
       toast({
         title: "Friend request declined",
-        description: "The friend request has been declined",
-      })
+        description: "Friend request has been declined",
+      });
     } catch (error) {
-      console.error("Error declining friend request:", error)
+      console.error("Error declining friend request:", error);
       toast({
         title: "Error",
-        description: "Failed to decline friend request",
-        variant: "destructive"
-      })
+        description: "Failed to decline friend request. Please try again.",
+        variant: "destructive",
+      });
     }
-  }
+  };
+
+  // Format timestamp for display
+  const formatTimestamp = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffSecs < 60) {
+      return 'Just now';
+    } else if (diffMins < 60) {
+      return `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+    } else if (diffDays < 7) {
+      return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
+  };
 
   // Fetch notifications on mount and when user changes
   useEffect(() => {
@@ -241,84 +336,109 @@ export function NotificationsDropdown() {
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
-            <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
+            <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
               {unreadCount}
-            </Badge>
+            </span>
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
-        <div className="flex items-center justify-between px-2">
-          <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={(e) => {
-              e.stopPropagation();
-              fetchNotifications();
-            }}
-            className="h-8 px-2 text-xs"
-          >
-            Refresh
-          </Button>
-        </div>
+      <DropdownMenuContent align="end" className="w-[350px]">
+        <DropdownMenuLabel className="flex items-center justify-between">
+          <span>Notifications</span>
+          {unreadCount > 0 && (
+            <Badge variant="secondary" className="ml-2">
+              {unreadCount} new
+            </Badge>
+          )}
+        </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <div className="max-h-[300px] overflow-y-auto">
-          {isLoading ? (
-            <div className="p-4 text-center text-muted-foreground">Loading...</div>
-          ) : notifications.length === 0 ? (
-            <div className="p-4 text-center text-muted-foreground">No notifications</div>
-          ) : (
-            <DropdownMenuGroup>
-              {notifications.map((notification) => (
+        
+        {isLoading ? (
+          <div className="flex items-center justify-center p-4">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            <span>Loading...</span>
+          </div>
+        ) : notifications.length === 0 ? (
+          <div className="text-center p-4 text-muted-foreground">
+            No notifications
+          </div>
+        ) : (
+          <>
+            <DropdownMenuGroup className="max-h-[300px] overflow-auto">
+              {notifications.slice(0, 5).map((notification) => (
                 <DropdownMenuItem 
-                  key={notification.id}
-                  className={`flex flex-col items-start p-3 ${!notification.read ? 'bg-muted/50' : ''}`}
-                  onClick={() => markAsRead(notification.id)}
+                  key={notification.id} 
+                  className={`flex flex-col items-start p-3 ${!notification.read ? 'bg-muted/50' : ''} ${!notification.handled ? 'cursor-pointer' : ''}`}
+                  onClick={() => !notification.handled && handleNotificationClick(notification)}
                 >
                   <div className="flex w-full items-start gap-2">
                     <Avatar className="h-8 w-8">
                       <AvatarImage src={notification.data?.fromUserPhoto || ''} />
                       <AvatarFallback>
-                        {notification.data?.fromUserName?.charAt(0) || '?'}
+                        {notification.data?.fromUserName?.split(' ').map((n: string) => n[0]).join('').toUpperCase() || 'U'}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1">
-                      <p className="text-sm font-medium">{notification.message}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(notification.createdAt).toLocaleString()}
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium">
+                          {notification.data?.fromUserName || 'Someone'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatTimestamp(notification.createdAt)}
+                        </p>
+                      </div>
+                      <p className="text-xs mt-1">{notification.message}</p>
+                      
+                      {/* Friend request actions */}
+                      {notification.type === 'friend_request' && !notification.handled && (
+                        <div className="flex gap-2 mt-2">
+                          <Button 
+                            size="sm" 
+                            variant="secondary"
+                            className="h-7 text-xs px-2"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAcceptFriendRequest(notification);
+                            }}
+                          >
+                            Accept
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="h-7 text-xs px-2"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeclineFriendRequest(notification);
+                            }}
+                          >
+                            Decline
+                          </Button>
+                        </div>
+                      )}
+                      
+                      {/* Handled notification indicator */}
+                      {notification.handled && (
+                        <Badge variant="outline" className="mt-1 text-xs">
+                          Handled
+                        </Badge>
+                      )}
                     </div>
                   </div>
-                  
-                  {notification.type === 'friend_request' && !notification.read && (
-                    <div className="mt-2 flex w-full justify-end gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDeclineFriendRequest(notification)
-                        }}
-                      >
-                        Decline
-                      </Button>
-                      <Button 
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleAcceptFriendRequest(notification)
-                        }}
-                      >
-                        Accept
-                      </Button>
-                    </div>
-                  )}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuGroup>
-          )}
-        </div>
+            
+            <DropdownMenuSeparator />
+            <DropdownMenuItem 
+              className="justify-center text-center cursor-pointer"
+              onClick={showAllNotifications}
+            >
+              See all notifications
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

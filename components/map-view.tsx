@@ -172,7 +172,6 @@ function getOrCreateMapInstance(containerId: string, center: [number, number], z
   console.log("DEBUG: globalMapInstance:", !!globalMapInstance);
   console.log("DEBUG: isMapInitializing:", isMapInitializing);
   console.log("DEBUG: mapInitializationPromise:", !!mapInitializationPromise);
-  console.log("DEBUG: mapInitializationAttempts:", mapInitializationAttempts);
   
   // If we've tried too many times, reject immediately
   if (mapInitializationAttempts >= MAX_INITIALIZATION_ATTEMPTS) {
@@ -711,20 +710,58 @@ export default function MapView() {
           shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
         });
         
-        // Create the map
+        // Create the map with explicit options
         const map = window.L.map(MAP_CONTAINER_ID, {
           center,
           zoom: 13,
           zoomControl: true,
           attributionControl: true,
           preferCanvas: true,
+          fadeAnimation: false, // Disable animations for better performance
+          markerZoomAnimation: false, // Disable animations for better performance
+          tap: false, // Disable tap handler for better performance
         });
         
-        // Add the tile layer
-        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-          maxZoom: 19,
-        }).addTo(map);
+        // Try multiple tile providers in case one is blocked
+        const tileProviders = [
+          {
+            url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19
+          },
+          {
+            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012',
+            maxZoom: 19
+          },
+          {
+            url: 'https://tile.openstreetmap.de/{z}/{x}/{y}.png',
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 18
+          }
+        ];
+        
+        // Try each tile provider
+        let tileLayer = null;
+        for (const provider of tileProviders) {
+          try {
+            console.log(`DEBUG: Trying tile provider: ${provider.url}`);
+            tileLayer = window.L.tileLayer(provider.url, {
+              attribution: provider.attribution,
+              maxZoom: provider.maxZoom
+            }).addTo(map);
+            console.log("DEBUG: Tile layer added successfully");
+            break; // Stop if successful
+          } catch (error) {
+            console.error(`DEBUG: Error adding tile layer from ${provider.url}:`, error);
+          }
+        }
+        
+        if (!tileLayer) {
+          console.error("DEBUG: All tile providers failed");
+          setError("Failed to load map tiles. Please check your internet connection.");
+          return;
+        }
         
         // Store the map instance
         mapRef.current = map;
@@ -744,7 +781,7 @@ export default function MapView() {
         
         // Force a resize after a short delay
         setTimeout(() => {
-          map.invalidateSize();
+          map.invalidateSize({ animate: false, pan: false });
           console.log("DEBUG: Map size invalidated");
           
           // Check if we need to update the map view based on the URL
@@ -753,8 +790,26 @@ export default function MapView() {
           if (appTab === 'map') {
             console.log("DEBUG: Map tab is active, forcing another invalidateSize");
             setTimeout(() => {
-              map.invalidateSize();
+              map.invalidateSize({ animate: false, pan: false });
               console.log("DEBUG: Second map size invalidation");
+              
+              // Force a third invalidation after a longer delay
+              setTimeout(() => {
+                map.invalidateSize({ animate: false, pan: false });
+                console.log("DEBUG: Third map size invalidation");
+                
+                // Try to force a redraw of the map
+                const container = document.getElementById(MAP_CONTAINER_ID);
+                if (container) {
+                  // Temporarily hide and show the container to force a redraw
+                  container.style.display = 'none';
+                  setTimeout(() => {
+                    container.style.display = 'block';
+                    map.invalidateSize({ animate: false, pan: false });
+                    console.log("DEBUG: Fourth map size invalidation after container redraw");
+                  }, 50);
+                }
+              }, 500);
             }, 300);
           }
         }, 300);
@@ -1178,7 +1233,15 @@ export default function MapView() {
           variant="secondary"
           size="sm"
           className="flex items-center gap-2"
-          onClick={() => setMapType(mapType === 'street' ? 'satellite' : 'street')}
+          onClick={() => {
+            setMapType(mapType === 'street' ? 'satellite' : 'street');
+            // Force map redraw when changing map type
+            if (mapRef.current) {
+              setTimeout(() => {
+                mapRef.current?.invalidateSize({ animate: false, pan: false });
+              }, 100);
+            }
+          }}
           disabled={isAddingLocation}
         >
           <Layers className="h-4 w-4" />

@@ -14,20 +14,12 @@ import { Home as HomeIcon, Map, Calendar, Users, Bell } from 'lucide-react';
 import { Header } from '@/components/header';
 import { AppContextProvider } from '@/contexts/AppContext';
 
-// Import ForgotPasswordForm directly with absolute path
-import { ForgotPasswordForm } from "@/components/auth/ForgotPasswordForm";
-
 // Dynamically import content components with loading states
 const HomeContent = dynamic(() => import('@/app/home/page'), {
   loading: () => <div className="flex justify-center items-center h-full"><Loading /></div>
 });
 
 const MapView = dynamic(() => import('@/components/map-view'), {
-  loading: () => <div className="flex justify-center items-center h-full"><Loading /></div>
-});
-
-// Update the import path for ScheduleContent with absolute path
-const ScheduleContent = dynamic(() => import('@/app/schedule/page-content'), {
   loading: () => <div className="flex justify-center items-center h-full"><Loading /></div>
 });
 
@@ -100,10 +92,6 @@ export default function Home() {
                 <MapView />
               </TabsContent>
               
-              <TabsContent value="schedule" className="h-full">
-                <ScheduleContent />
-              </TabsContent>
-              
               <TabsContent value="teammates" className="h-full">
                 <TeammatesContent />
               </TabsContent>
@@ -133,10 +121,6 @@ export default function Home() {
                   <Map className="h-5 w-5" />
                   <span className="text-xs">Map</span>
                 </TabsTrigger>
-                <TabsTrigger value="schedule" className="flex flex-col items-center justify-center">
-                  <Calendar className="h-5 w-5" />
-                  <span className="text-xs">Schedule</span>
-                </TabsTrigger>
                 <TabsTrigger value="teammates" className="flex flex-col items-center justify-center">
                   <Users className="h-5 w-5" />
                   <span className="text-xs">Teammates</span>
@@ -155,7 +139,31 @@ export default function Home() {
       <Card className="w-full max-w-md">
         <CardContent className="pt-6">
           {activeView === 'forgot-password' ? (
-            <ForgotPasswordForm onBackToLogin={() => setActiveView(null)} />
+            <div className="text-center">
+              <h2 className="text-lg font-semibold mb-4">Reset Password</h2>
+              <p className="mb-4">Please enter your email to receive a password reset link.</p>
+              <div className="space-y-4">
+                <input 
+                  type="email" 
+                  placeholder="Email" 
+                  className="w-full p-2 border rounded"
+                />
+                <div className="flex flex-col space-y-2">
+                  <button 
+                    className="bg-primary text-primary-foreground py-2 rounded"
+                    onClick={() => alert('Password reset functionality would be implemented here')}
+                  >
+                    Send Reset Link
+                  </button>
+                  <button 
+                    className="text-sm text-muted-foreground"
+                    onClick={() => setActiveView(null)}
+                  >
+                    Back to Login
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : (
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="grid w-full grid-cols-2 mb-4">

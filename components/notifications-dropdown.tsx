@@ -133,15 +133,8 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
     // Mark as read
     markAsRead(notification.id);
     
-    // If it's a friend request that has been handled, delete the notification
-    if ((notification.type === 'friend_request') && notification.handled) {
-      deleteNotification(notification.id);
-    }
-    
     // Navigate to notifications page
     setActiveTab('notifications');
-    // The setActiveTab function in AppContext will handle the URL update
-    // through the onTabChange callback in the parent component
     
     // Close the dropdown (if applicable)
     if (typeof document !== 'undefined') {
@@ -476,8 +469,9 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
               {notifications.slice(0, 5).map((notification) => (
                 <DropdownMenuItem 
                   key={notification.id} 
-                  className={`flex flex-col items-start p-3 ${!notification.read ? 'bg-muted/50' : ''} ${!notification.handled ? 'cursor-pointer' : ''}`}
-                  onClick={() => !notification.handled && handleNotificationClick(notification)}
+                  className={`flex flex-col items-start p-3 ${!notification.read ? 'bg-muted/50' : ''}`}
+                  onClick={() => handleNotificationClick(notification)}
+                  onSelect={(e) => e.preventDefault()} // Prevent the dropdown from closing
                 >
                   <div className="flex w-full items-start gap-2">
                     <Avatar className="h-8 w-8">

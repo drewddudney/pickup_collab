@@ -409,21 +409,16 @@ export default function MapView() {
       return null;
     }
     
-    const SportIcon = SportMarkers[sportId as keyof typeof SportMarkers] || SportMarkers.basketball;
+    // Use the marker images from the public folder
+    const markerPath = `/sports/${sportId}-marker.svg`;
     
-    // Convert the React component to an SVG string
-    const svgString = ReactDOMServer.renderToString(<SportIcon className="w-8 h-8 sport-accent" />);
+    console.log("DEBUG: Using marker image:", markerPath);
     
-    // Create a container for the SVG
-    const iconHtml = document.createElement('div');
-    iconHtml.className = 'sport-marker-icon';
-    iconHtml.innerHTML = svgString;
-    
-    return window.L.divIcon({
-      html: iconHtml.outerHTML,
-      className: '',
+    return window.L.icon({
+      iconUrl: markerPath,
       iconSize: [32, 32],
       iconAnchor: [16, 32],
+      popupAnchor: [0, -32]
     });
   }, []);
 
@@ -456,7 +451,7 @@ export default function MapView() {
           address: data.results[0].formatted_address
         }));
       }
-    } catch (error) {
+      } catch (error) {
       console.error('Error reverse geocoding:', error);
     }
   }, []);
@@ -529,14 +524,14 @@ export default function MapView() {
       
       const locationsRef = collection(db, 'locations');
       const q = query(locationsRef);
-      const querySnapshot = await getDocs(q);
+        const querySnapshot = await getDocs(q);
       
       const fetchedLocations: ExtendedLocation[] = [];
       
       querySnapshot.forEach((doc) => {
         const data = doc.data() as ExtendedLocation;
         fetchedLocations.push({
-          ...data,
+            ...data,
           id: doc.id
         });
       });
@@ -553,26 +548,26 @@ export default function MapView() {
           : fetchedLocations
       );
       
-    } catch (error) {
+      } catch (error) {
       console.error("Error fetching locations:", error);
       setError("Failed to load locations. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+      } finally {
+        setLoading(false);
+      }
   }, [selectedSport]);
 
   const handleAddLocation = async () => {
     if (!user) return;
     
     if (!hasValidLocation(newLocation)) {
-      toast({
+        toast({
         title: "Invalid location",
         description: "Please provide a name, address, and valid coordinates.",
         variant: "destructive"
-      });
-      return;
-    }
-    
+        });
+        return;
+      }
+      
     try {
       // Prepare the location data
       const locationData: Omit<ExtendedLocation, 'id'> = {
@@ -890,13 +885,13 @@ export default function MapView() {
         window.getCurrentLocation = () => {
           console.log("DEBUG: Getting current location");
           if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-              (position) => {
-                const lat = position.coords.latitude;
-                const lng = position.coords.longitude;
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
                 
                 // Set user location
-                setUserLocation([lat, lng]);
+        setUserLocation([lat, lng]);
                 
                 // Update map center
                 map.setView([lat, lng], 15);
@@ -917,17 +912,17 @@ export default function MapView() {
                   title: "Location Found",
                   description: "Map centered on your current location",
                 });
-              },
-              (error) => {
+      },
+      (error) => {
                 console.error("DEBUG: Error getting location:", error);
-                toast({
-                  title: "Error",
+        toast({
+          title: "Error",
                   description: "Unable to retrieve your location. Please check your browser permissions.",
-                  variant: "destructive"
-                });
-              }
-            );
-          } else {
+          variant: "destructive"
+        });
+      }
+    );
+    } else {
             toast({
               title: "Error",
               description: "Geolocation is not supported by your browser",
@@ -1091,8 +1086,8 @@ export default function MapView() {
       setIsDraggingMarker(false);
       const position = e.target.getLatLng();
       
-      setNewLocation(prev => ({
-        ...prev,
+        setNewLocation(prev => ({
+          ...prev,
         lat: position.lat,
         lng: position.lng
       }));
@@ -1192,7 +1187,7 @@ export default function MapView() {
   }
 
   if (loading && !isMapInitialized) {
-    return (
+  return (
       <div className="h-full w-full flex items-center justify-center bg-muted/20">
         <div className="flex flex-col items-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -1320,7 +1315,7 @@ export default function MapView() {
           border: '1px solid #ccc'
         }}
       ></div>
-      
+
       {/* Add Location Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">

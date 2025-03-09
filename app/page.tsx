@@ -161,52 +161,50 @@ export default function Home() {
   return (
     <AuthLayout>
       <div className="flex min-h-screen flex-col items-center justify-center">
-        <div className="w-[90%] max-w-[400px] px-4 py-8 md:px-8 md:py-12">
-          <Card className="w-full">
-            <CardContent className="pt-6">
-              {activeView === 'forgot-password' ? (
-                <div className="text-center">
-                  <h2 className="text-lg font-semibold mb-4">Reset Password</h2>
-                  <p className="mb-4">Please enter your email to receive a password reset link.</p>
-                  <div className="space-y-4">
-                    <input 
-                      type="email" 
-                      placeholder="Email" 
-                      className="w-full p-2 border rounded"
-                    />
-                    <div className="flex flex-col space-y-2">
-                      <button 
-                        className="bg-primary text-primary-foreground py-2 rounded"
-                        onClick={() => alert('Password reset functionality would be implemented here')}
-                      >
-                        Send Reset Link
-                      </button>
-                      <button 
-                        className="text-sm text-muted-foreground"
-                        onClick={() => setActiveView(null)}
-                      >
-                        Back to Login
-                      </button>
-                    </div>
+        <Card className="w-[90%] max-w-md">
+          <CardContent className="pt-6">
+            {activeView === 'forgot-password' ? (
+              <div className="text-center">
+                <h2 className="text-lg font-semibold mb-4">Reset Password</h2>
+                <p className="mb-4">Please enter your email to receive a password reset link.</p>
+                <div className="space-y-4">
+                  <input 
+                    type="email" 
+                    placeholder="Email" 
+                    className="w-full p-2 border rounded"
+                  />
+                  <div className="flex flex-col space-y-2">
+                    <button 
+                      className="bg-primary text-primary-foreground py-2 rounded"
+                      onClick={() => alert('Password reset functionality would be implemented here')}
+                    >
+                      Send Reset Link
+                    </button>
+                    <button 
+                      className="text-sm text-muted-foreground"
+                      onClick={() => setActiveView(null)}
+                    >
+                      Back to Login
+                    </button>
                   </div>
                 </div>
-              ) : (
-                <Tabs value={activeTab} onValueChange={setActiveTab}>
-                  <TabsList className="grid w-full grid-cols-2 mb-4">
-                    <TabsTrigger value="login">Login</TabsTrigger>
-                    <TabsTrigger value="signup">Sign Up</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="login">
-                    <LoginForm onForgotPassword={() => setActiveView('forgot-password')} />
-                  </TabsContent>
-                  <TabsContent value="signup">
-                    <SignUpForm />
-                  </TabsContent>
-                </Tabs>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+              </div>
+            ) : (
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="grid w-full grid-cols-2 mb-4">
+                  <TabsTrigger value="login">Login</TabsTrigger>
+                  <TabsTrigger value="signup">Sign Up</TabsTrigger>
+                </TabsList>
+                <TabsContent value="login">
+                  <LoginForm onForgotPassword={() => setActiveView('forgot-password')} />
+                </TabsContent>
+                <TabsContent value="signup">
+                  <SignUpForm />
+                </TabsContent>
+              </Tabs>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </AuthLayout>
   );

@@ -40,8 +40,10 @@ const nextConfig = {
   poweredByHeader: false,
   // External packages that should be transpiled
   transpilePackages: ['leaflet', 'react-leaflet'],
-  // Use SWC for compilation (required for next/font)
-  swcMinify: true,
+  // Explicitly disable Babel to ensure SWC is used
+  experimental: {
+    forceSwcTransforms: true
+  }
 }
 
 mergeConfig(nextConfig, userConfig)
@@ -52,6 +54,9 @@ function mergeConfig(nextConfig, userConfig) {
   }
 
   for (const key in userConfig) {
+    // Skip swcMinify as it's deprecated in Next.js 15.1.0
+    if (key === 'swcMinify') continue;
+    
     if (
       typeof nextConfig[key] === 'object' &&
       !Array.isArray(nextConfig[key])

@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Search, UserPlus, Users, Shield, Check, UserMinus, Trash2, LogOut, UserX } from "lucide-react"
+import { Search, UserPlus, Users, Shield, Check, UserMinus, Trash2, LogOut, UserX, X } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -19,6 +19,8 @@ import { useToast } from "@/components/ui/use-toast"
 import { Loader2 } from "lucide-react"
 import { useSport } from "@/components/sport-context"
 import { SportSelector } from "@/components/sport-selector"
+import Link from "next/link"
+import { useAppContext } from "@/app/page"
 
 interface User {
   id: string
@@ -29,6 +31,12 @@ interface User {
   firstName: string
   lastName: string
   city?: string
+}
+
+interface PendingFriend extends User {
+  requestId?: string
+  direction?: 'incoming' | 'outgoing'
+  isPending?: boolean
 }
 
 interface Team {
@@ -44,9 +52,19 @@ export default function TeammatesView() {
   const { user } = useAuth()
   const { toast } = useToast()
   const { selectedSport } = useSport()
+  const { setActiveTab } = useAppContext()
+  const [teammatesTab, setTeammatesTab] = useState("friends")
+  const [friends, setFriends] = useState<User[]>([])
+  const [pendingFriends, setPendingFriends] = useState<PendingFriend[]>([])
+  const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<User[]>([])
-  const [friends, setFriends] = useState<User[]>([])
+  const [searching, setSearching] = useState(false)
+  const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [isInviting, setIsInviting] = useState(false)
+  const [isRemoving, setIsRemoving] = useState(false)
+  const [showInviteDialog, setShowInviteDialog] = useState(false)
+  const [showRemoveDialog, setShowRemoveDialog] = useState(false)
   const [teams, setTeams] = useState<Team[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false)
@@ -65,50 +83,136 @@ export default function TeammatesView() {
     removeMember: false,
     deleteTeam: false,
     leaveTeam: false,
+    pendingFriends: false,
   })
-  const [pendingFriends, setPendingFriends] = useState<User[]>([])
 
   // Fetch friends list
   useEffect(() => {
     const fetchFriends = async () => {
       if (!user?.uid) return
       
+      setIsLoading(prev => ({ ...prev, friends: true, pendingFriends: true }))
+      
       try {
         // Get friends from the friends subcollection
         const friendsCollectionRef = collection(db, "users", user.uid, "friends")
         const friendsSnapshot = await getDocs(friendsCollectionRef)
         
-        const friendsData = friendsSnapshot.docs.map(doc => {
-          return { id: doc.id, ...doc.data() } as User
+        // Get detailed user data for each friend
+        const friendsPromises = friendsSnapshot.docs.map(async (docSnapshot) => {
+          const friendId = docSnapshot.id
+          const friendProfileRef = doc(db, "users", friendId)
+          const friendProfileDoc = await getDoc(friendProfileRef)
+          
+          if (friendProfileDoc.exists()) {
+            const friendData = friendProfileDoc.data()
+            return { 
+              id: friendId,
+              firstName: friendData.firstName || '',
+              lastName: friendData.lastName || '',
+              email: friendData.email || '',
+              photoURL: friendData.profilePicture || friendData.photoURL || '',
+              city: friendData.city || ''
+            } as User
+          }
+          
+          return { id: friendId, ...docSnapshot.data() } as User
         })
         
+        const friendsData = await Promise.all(friendsPromises)
         setFriends(friendsData)
         
-        // Get pending friend requests from the friendRequests collection
-        const pendingRequestsQuery = query(
+        // Get incoming friend requests (requests sent to the current user)
+        const incomingRequestsQuery = query(
           collection(db, "friendRequests"),
           where("toUserId", "==", user.uid),
           where("status", "==", "pending")
         )
-        const pendingSnapshot = await getDocs(pendingRequestsQuery)
+        const incomingSnapshot = await getDocs(incomingRequestsQuery)
         
-        const pendingFriendsData = pendingSnapshot.docs.map(doc => {
-          const data = doc.data()
+        const incomingFriendsPromises = incomingSnapshot.docs.map(async (docSnapshot) => {
+          const data = docSnapshot.data()
+          const fromUserId = data.fromUserId
+          
+          // Get detailed user data for the sender
+          const senderProfileRef = doc(db, "users", fromUserId)
+          const senderProfileDoc = await getDoc(senderProfileRef)
+          
+          let firstName = data.fromUserName?.split(' ')[0] || ''
+          let lastName = data.fromUserName?.split(' ')[1] || ''
+          let photoURL = data.fromUserPhoto || ''
+          
+          if (senderProfileDoc.exists()) {
+            const senderData = senderProfileDoc.data()
+            firstName = senderData.firstName || firstName
+            lastName = senderData.lastName || lastName
+            photoURL = senderData.profilePicture || senderData.photoURL || photoURL
+          }
+          
           return { 
-            id: data.fromUserId,
-            firstName: data.fromUserName.split(' ')[0] || '',
-            lastName: data.fromUserName.split(' ')[1] || '',
-            email: data.fromUserEmail,
-            photoURL: data.fromUserPhoto,
-            requestId: doc.id,
-            isPending: true 
-          } as User & { requestId: string, isPending: boolean }
+            id: fromUserId,
+            firstName,
+            lastName,
+            email: data.fromUserEmail || '',
+            photoURL,
+            requestId: docSnapshot.id,
+            isPending: true,
+            direction: 'incoming'
+          } as PendingFriend
         })
         
+        const incomingFriendsData = await Promise.all(incomingFriendsPromises)
+        
+        // Get outgoing friend requests (requests sent by the current user)
+        const outgoingRequestsQuery = query(
+          collection(db, "friendRequests"),
+          where("fromUserId", "==", user.uid),
+          where("status", "==", "pending")
+        )
+        const outgoingSnapshot = await getDocs(outgoingRequestsQuery)
+        
+        const outgoingFriendsPromises = outgoingSnapshot.docs.map(async (docSnapshot) => {
+          const data = docSnapshot.data()
+          const toUserId = data.toUserId
+          
+          // Get detailed user data for the recipient
+          const recipientProfileRef = doc(db, "users", toUserId)
+          const recipientProfileDoc = await getDoc(recipientProfileRef)
+          
+          let firstName = data.toUserName?.split(' ')[0] || ''
+          let lastName = data.toUserName?.split(' ')[1] || ''
+          let photoURL = data.toUserPhoto || ''
+          
+          if (recipientProfileDoc.exists()) {
+            const recipientData = recipientProfileDoc.data()
+            firstName = recipientData.firstName || firstName
+            lastName = recipientData.lastName || lastName
+            photoURL = recipientData.profilePicture || recipientData.photoURL || photoURL
+          }
+          
+          return { 
+            id: toUserId,
+            firstName,
+            lastName,
+            email: data.toUserEmail || '',
+            photoURL,
+            requestId: docSnapshot.id,
+            isPending: true,
+            direction: 'outgoing'
+          } as PendingFriend
+        })
+        
+        const outgoingFriendsData = await Promise.all(outgoingFriendsPromises)
+        
+        // Combine incoming and outgoing requests
+        const allPendingFriends = [...incomingFriendsData, ...outgoingFriendsData]
+        
         // Set pending friends
-        setPendingFriends(pendingFriendsData)
+        setPendingFriends(allPendingFriends)
       } catch (error) {
         console.error("Error fetching friends:", error)
+      } finally {
+        setIsLoading(prev => ({ ...prev, friends: false, pendingFriends: false }))
       }
     }
 
@@ -283,14 +387,28 @@ export default function TeammatesView() {
       
       console.log("Notification created with ID:", notificationDoc.id);
       
+      // Add to local pending friends state to update UI immediately
+      const newPendingFriend = {
+        id: friendId,
+        firstName: friendData?.firstName || "",
+        lastName: friendData?.lastName || "",
+        email: friendData?.email || "",
+        photoURL: friendData?.photoURL || "",
+        requestId: requestId,
+        isPending: true,
+        direction: 'outgoing'
+      } as User & { requestId: string, isPending: boolean, direction: 'incoming' | 'outgoing' };
+      
+      setPendingFriends(prev => [...prev, newPendingFriend]);
+      
       toast({
         title: "Friend request sent",
         description: `A friend request has been sent to ${friendData?.firstName} ${friendData?.lastName}`,
       })
       
-      // Clear search results
-      setSearchResults([])
-      setSearchQuery("")
+      // Don't clear search results, just update the button state
+      // setSearchResults([])
+      // setSearchQuery("")
     } catch (error) {
       console.error("Error sending friend request:", error)
       toast({
@@ -509,499 +627,707 @@ export default function TeammatesView() {
     }
   };
 
+  const navigateToPlayerSearch = () => {
+    setActiveTab('player-search');
+  }
+
+  const handleAcceptFriendRequest = async (requestId: string) => {
+    if (!user) return;
+    
+    try {
+      setIsLoading(prev => ({ ...prev, pendingFriends: true }));
+      
+      // Get the friend request document
+      const requestDoc = await getDoc(doc(db, 'friendRequests', requestId));
+      
+      if (!requestDoc.exists()) {
+        throw new Error("Friend request not found");
+      }
+      
+      const requestData = requestDoc.data();
+      const senderId = requestData.fromUserId;
+      const receiverId = requestData.toUserId;
+      
+      // Get sender user data
+      const senderDoc = await getDoc(doc(db, 'users', senderId));
+      if (!senderDoc.exists()) {
+        throw new Error("Sender user not found");
+      }
+      const senderData = senderDoc.data();
+      
+      // Get receiver user data
+      const receiverDoc = await getDoc(doc(db, 'users', receiverId));
+      if (!receiverDoc.exists()) {
+        throw new Error("Receiver user not found");
+      }
+      const receiverData = receiverDoc.data();
+      
+      console.log("Adding friends:", {senderId, receiverId});
+      console.log("Sender data:", senderData);
+      console.log("Receiver data:", receiverData);
+      
+      // Create friend entries in both users' collections
+      try {
+        // Add sender to receiver's friends
+        await setDoc(doc(db, `users/${receiverId}/friends/${senderId}`), {
+          firstName: senderData.firstName || '',
+          lastName: senderData.lastName || '',
+          email: senderData.email || '',
+          photoURL: senderData.profilePicture || senderData.photoURL || '',
+          createdAt: new Date(),
+          status: 'accepted'
+        });
+        
+        console.log("Added sender to receiver's friends");
+        
+        // Add receiver to sender's friends
+        await setDoc(doc(db, `users/${senderId}/friends/${receiverId}`), {
+          firstName: receiverData.firstName || '',
+          lastName: receiverData.lastName || '',
+          email: receiverData.email || '',
+          photoURL: receiverData.profilePicture || receiverData.photoURL || '',
+          createdAt: new Date(),
+          status: 'accepted'
+        });
+        
+        console.log("Added receiver to sender's friends");
+        
+        // Delete the friend request
+        await deleteDoc(doc(db, 'friendRequests', requestId));
+        
+        console.log("Deleted friend request");
+        
+        // Update the local state
+        const friendToAdd = pendingFriends.find(friend => friend.requestId === requestId);
+        if (friendToAdd) {
+          setFriends(prev => [...prev, {
+            id: friendToAdd.id,
+            firstName: friendToAdd.firstName,
+            lastName: friendToAdd.lastName,
+            email: friendToAdd.email,
+            photoURL: friendToAdd.photoURL,
+            displayName: friendToAdd.displayName
+          }]);
+          
+          setPendingFriends(prev => prev.filter(friend => friend.requestId !== requestId));
+        }
+        
+        toast({
+          title: "Friend request accepted",
+          description: "You are now friends",
+        });
+      } catch (error) {
+        console.error("Error accepting friend request:", error);
+        toast({
+          title: "Error",
+          description: "Failed to accept friend request. Please try again.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error accepting friend request:", error);
+      toast({
+        title: "Error",
+        description: "Failed to accept friend request. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(prev => ({ ...prev, pendingFriends: false }));
+    }
+  };
+
+  const handleDeclineFriendRequest = async (requestId: string) => {
+    if (!user) return;
+    
+    try {
+      setIsLoading(prev => ({ ...prev, pendingFriends: true }));
+      
+      // Delete the friend request document
+      await deleteDoc(doc(db, 'friendRequests', requestId));
+      
+      // Update the local state
+      setPendingFriends(prev => prev.filter(friend => friend.requestId !== requestId));
+      
+      toast({
+        title: "Friend request declined",
+        description: "Friend request has been declined",
+      });
+    } catch (error) {
+      console.error("Error declining friend request:", error);
+      toast({
+        title: "Error",
+        description: "Failed to decline friend request",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(prev => ({ ...prev, pendingFriends: false }));
+    }
+  };
+
+  const handleCancelFriendRequest = async (requestId: string) => {
+    if (!user) return;
+    
+    try {
+      setIsLoading(prev => ({ ...prev, pendingFriends: true }));
+      
+      // Delete the friend request document
+      await deleteDoc(doc(db, 'friendRequests', requestId));
+      
+      // Update the local state
+      setPendingFriends(prev => prev.filter(friend => friend.requestId !== requestId));
+      
+      toast({
+        title: "Request cancelled",
+        description: "Friend request has been cancelled",
+      });
+    } catch (error) {
+      console.error("Error cancelling friend request:", error);
+      toast({
+        title: "Error",
+        description: "Failed to cancel friend request",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(prev => ({ ...prev, pendingFriends: false }));
+    }
+  };
+
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-3xl font-bold tracking-tight">Teams & Friends</h2>
-      </div>
-
-      <Tabs defaultValue="friends">
-        <TabsList>
-          <TabsTrigger value="friends">
-            <Users className="h-4 w-4 mr-2" />
-            Friends
-          </TabsTrigger>
-          <TabsTrigger value="teams">
-            <Shield className="h-4 w-4 mr-2" />
-            Teams
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="friends">
+    <div className="container py-6 pb-20">
       <Card>
         <CardHeader>
-              <CardTitle>Find Players</CardTitle>
-              <CardDescription>Search for other players to add as friends</CardDescription>
+          <CardTitle>Teammates</CardTitle>
+          <CardDescription>Manage your friends and teammates</CardDescription>
         </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex gap-2">
-              <Input
-                  placeholder="Search by name..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-                <Button onClick={handleSearch} variant="secondary">
-                  <Search className="h-4 w-4 mr-2" />
-                  Search
-                </Button>
-              </div>
-              
-              {searchResults.length > 0 && (
-                <ScrollArea className="h-[200px]">
-                  <div className="space-y-4">
-                    {searchResults.map((result) => (
-                      <div key={result.id} className="flex items-center justify-between p-2 bg-muted rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Avatar>
-                            <AvatarImage src={result.photoURL} />
-                            <AvatarFallback>
-                              {result.firstName?.[0] || ''}{result.lastName?.[0] || ''}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-medium">
-                              {result.firstName} {result.lastName}
-                            </p>
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm text-muted-foreground">{result.email}</p>
-                              {result.city && (
-                                <span className="text-xs bg-muted px-1.5 py-0.5 rounded-md">
-                                  {result.city}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleAddFriend(result.id)}
-                          disabled={
-                            friends.some(f => f.id === result.id) || 
-                            pendingFriends.some(f => f.id === result.id) ||
-                            isLoading.addFriend
-                          }
-                        >
-                          <UserPlus className="h-4 w-4 mr-2" />
-                          {friends.some(f => f.id === result.id) 
-                            ? "Friend Added" 
-                            : pendingFriends.some(f => f.id === result.id)
-                              ? "Request Pending"
-                              : isLoading.addFriend
-                                ? "Sending..."
-                                : "Add Friend"
-                          }
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              )}
-
-              <div>
-                <h3 className="font-medium mb-4">Your Friends</h3>
-                
+        
+        <CardContent>
+          <Tabs defaultValue="friends">
+            <TabsList>
+              <TabsTrigger value="friends">Friends</TabsTrigger>
+              <TabsTrigger value="pending" className="relative">
+                Pending
                 {pendingFriends.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="text-sm font-medium text-muted-foreground mb-2">Pending Friend Requests</h4>
-                    <div className="space-y-2">
-                      {pendingFriends.map((friend) => (
-                        <div key={friend.id} className="flex items-center justify-between p-2 bg-muted/50 border border-dashed border-muted-foreground/30 rounded-lg">
-                          <div className="flex items-center gap-3">
-                            <Avatar>
-                              <AvatarImage src={friend.photoURL} />
-                              <AvatarFallback>{friend.firstName?.[0]}</AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="font-medium">{friend.firstName} {friend.lastName}</p>
-                                <Badge variant="outline" className="text-xs">Pending</Badge>
-                              </div>
-                              <p className="text-sm text-muted-foreground">{friend.email}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+                    {pendingFriends.length}
+                  </span>
                 )}
-                
-                <ScrollArea className="h-[200px]">
-                  <div className="space-y-4">
-                    {friends.map((friend) => (
-                      <div key={friend.id} className="flex items-center justify-between p-2 bg-muted rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Avatar>
-                            <AvatarImage src={friend.photoURL} />
-                            <AvatarFallback>{friend.firstName?.[0]}</AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-medium">{friend.firstName} {friend.lastName}</p>
-                            <p className="text-sm text-muted-foreground">{friend.email}</p>
-                          </div>
-                        </div>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
-                              <UserMinus className="h-4 w-4" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Remove Friend</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to remove this friend? This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleRemoveFriend(friend.id)}>
-                                Remove
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="teams">
-          {isLoading.teams ? (
-            <div className="flex items-center justify-center h-[400px]">
-              <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-          ) : (
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
+              </TabsTrigger>
+              <TabsTrigger value="teams">Teams</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="friends" className="mt-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
                   <div>
-                    <CardTitle>Your Teams</CardTitle>
-                    <CardDescription>Teams you're a part of</CardDescription>
+                    <CardTitle>Your Friends</CardTitle>
+                    <CardDescription>Manage your friends</CardDescription>
                   </div>
-                  <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline">
-                        <Shield className="h-4 w-4 mr-2" />
-                        Create Team
+                  <Button onClick={navigateToPlayerSearch}>
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    Find Players
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {friends.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-muted-foreground mb-4">You don't have any friends yet</p>
+                      <Button onClick={navigateToPlayerSearch}>
+                        <UserPlus className="h-4 w-4 mr-2" />
+                        Find Players
                       </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Create New Team</DialogTitle>
-                        <DialogDescription>
-                          Name your team and invite friends to join
-                        </DialogDescription>
-                      </DialogHeader>
+                    </div>
+                  ) : (
+                    <ScrollArea className="h-[300px]">
                       <div className="space-y-4">
-            <div className="space-y-2">
-                          <Label htmlFor="team-name">Team Name</Label>
-              <Input
-                            id="team-name"
-                            placeholder="Enter team name..."
-                            value={newTeamName}
-                            onChange={(e) => setNewTeamName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-                          <Label>Select Friends to Invite</Label>
-                          <ScrollArea className="h-[200px] border rounded-md p-2">
-          <div className="space-y-2">
-                              {friends.map((friend) => (
-                                <div
-                                  key={friend.id}
-                                  className="flex items-center justify-between p-2 hover:bg-muted rounded-lg"
-                >
-                  <div className="flex items-center gap-3">
-                    <Avatar>
-                                      <AvatarImage src={friend.photoURL} />
-                                      <AvatarFallback>{friend.displayName?.[0]}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                                      <p className="font-medium">{friend.displayName}</p>
-                                      <p className="text-sm text-muted-foreground">{friend.email}</p>
+                        {friends.map((friend) => (
+                          <div key={friend.id} className="flex items-center justify-between p-2 bg-muted rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <Avatar>
+                                <AvatarImage src={friend.photoURL || ''} alt={`${friend.firstName} ${friend.lastName}`} />
+                                <AvatarFallback>
+                                  {friend.firstName && friend.lastName
+                                    ? `${friend.firstName[0]}${friend.lastName[0]}`
+                                    : "U"}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="font-medium">{friend.firstName} {friend.lastName}</p>
+                                <p className="text-sm text-muted-foreground">{friend.city || 'No location'}</p>
+                              </div>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleRemoveFriend(friend.id)}
+                            >
+                              <UserMinus className="h-4 w-4 mr-2" />
+                              Remove
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="pending" className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Pending Requests</CardTitle>
+                  <CardDescription>Manage your pending friend requests</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {isLoading.pendingFriends ? (
+                    <div className="flex items-center justify-center h-[200px]">
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : pendingFriends.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-muted-foreground">No pending friend requests</p>
+                      <Button onClick={navigateToPlayerSearch} className="mt-4">
+                        <UserPlus className="h-4 w-4 mr-2" />
+                        Find Players
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {/* Incoming requests */}
+                      {pendingFriends.some(friend => friend.direction === 'incoming') && (
+                        <div>
+                          <h3 className="text-sm font-medium mb-3">Incoming Requests</h3>
+                          <ScrollArea className="h-[200px]">
+                            <div className="space-y-3">
+                              {pendingFriends
+                                .filter(friend => friend.direction === 'incoming')
+                                .map((friend) => (
+                                  <div key={friend.id} className="flex items-center justify-between p-3 border rounded-lg">
+                                    <div className="flex items-center gap-3">
+                                      <Avatar>
+                                        <AvatarImage src={friend.photoURL || ""} alt={friend.displayName || "User"} />
+                                        <AvatarFallback>
+                                          {friend.firstName && friend.lastName
+                                            ? `${friend.firstName[0]}${friend.lastName[0]}`
+                                            : "U"}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      <div>
+                                        <p className="font-medium">
+                                          {friend.firstName} {friend.lastName}
+                                        </p>
+                                        <p className="text-sm text-muted-foreground">
+                                          Wants to be your friend
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        onClick={() => handleAcceptFriendRequest(friend.requestId || '')}
+                                      >
+                                        <Check className="h-4 w-4 mr-1" />
+                                        Accept
+                                      </Button>
+                                      <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        onClick={() => handleDeclineFriendRequest(friend.requestId || '')}
+                                      >
+                                        <X className="h-4 w-4 mr-1" />
+                                        Decline
+                                      </Button>
                                     </div>
                                   </div>
-                                  <Button
-                                    variant={selectedFriends.includes(friend.id) ? "default" : "outline"}
-                                    size="sm"
-                                    onClick={() => toggleFriendSelection(friend.id)}
-                                  >
-                                    {selectedFriends.includes(friend.id) ? (
-                                      <>
-                                        <Check className="h-4 w-4 mr-2" />
-                                        Selected
-                                      </>
-                                    ) : (
-                                      "Select"
-                                    )}
-                                  </Button>
-                                </div>
-                              ))}
+                                ))}
                             </div>
                           </ScrollArea>
                         </div>
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" onClick={() => {
-                            setIsDialogOpen(false)
-                            setNewTeamName("")
-                            setSelectedFriends([])
-                          }}>
-                            Cancel
-                          </Button>
-                          <Button 
-                            onClick={handleCreateTeam} 
-                            disabled={!newTeamName.trim()}
-                          >
+                      )}
+                      
+                      {/* Outgoing requests */}
+                      {pendingFriends.some(friend => friend.direction === 'outgoing') && (
+                        <div>
+                          <h3 className="text-sm font-medium mb-3">Outgoing Requests</h3>
+                          <ScrollArea className="h-[200px]">
+                            <div className="space-y-3">
+                              {pendingFriends
+                                .filter(friend => friend.direction === 'outgoing')
+                                .map((friend) => (
+                                  <div key={friend.id} className="flex items-center justify-between p-3 border rounded-lg">
+                                    <div className="flex items-center gap-3">
+                                      <Avatar>
+                                        <AvatarImage src={friend.photoURL || ""} alt={friend.displayName || "User"} />
+                                        <AvatarFallback>
+                                          {friend.firstName && friend.lastName
+                                            ? `${friend.firstName[0]}${friend.lastName[0]}`
+                                            : "U"}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      <div>
+                                        <p className="font-medium">
+                                          {friend.firstName} {friend.lastName}
+                                        </p>
+                                        <p className="text-sm text-muted-foreground">
+                                          Request sent
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      onClick={() => handleCancelFriendRequest(friend.requestId || '')}
+                                    >
+                                      <X className="h-4 w-4 mr-1" />
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                ))}
+                            </div>
+                          </ScrollArea>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="teams" className="mt-4">
+              {isLoading.teams ? (
+                <div className="flex items-center justify-center h-[400px]">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                </div>
+              ) : (
+                <Card>
+                  <CardHeader>
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <CardTitle>Your Teams</CardTitle>
+                        <CardDescription>Teams you're a part of</CardDescription>
+                      </div>
+                      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline">
+                            <Shield className="h-4 w-4 mr-2" />
                             Create Team
                           </Button>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[400px]">
-                  <div className="space-y-4">
-                    {teams.map((team) => (
-                      <Card key={team.id}>
-                        <CardHeader>
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <CardTitle>{team.name}</CardTitle>
-                              <CardDescription>
-                                {team.owner === user?.uid ? "Team Owner" : "Team Member"}
-                              </CardDescription>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {team.owner === user?.uid && (
-                                <Dialog open={isInviteDialogOpen && activeTeamId === team.id} 
-                                       onOpenChange={(open) => {
-                                         setIsInviteDialogOpen(open);
-                                         if (open) setActiveTeamId(team.id!);
-                                         else {
-                                           setSelectedFriends([]);
-                                           setActiveTeamId("");
-                                         }
-                                       }}>
-                                  <DialogTrigger asChild>
-                                    <Button variant="outline" size="sm">
-                                      <UserPlus className="h-4 w-4 mr-2" />
-                                      Invite Members
-                                    </Button>
-                                  </DialogTrigger>
-                                  <DialogContent>
-                                    <DialogHeader>
-                                      <DialogTitle>Invite Team Members</DialogTitle>
-                                      <DialogDescription>
-                                        Select friends to invite to {team.name}
-                                      </DialogDescription>
-                                    </DialogHeader>
-                                    <div className="space-y-4">
-                                      <ScrollArea className="h-[200px] border rounded-md p-2">
-                                        <div className="space-y-2">
-                                          {friends
-                                            .filter(friend => !team.members.includes(friend.id))
-                                            .map((friend) => (
-                                              <div
-                                                key={friend.id}
-                                                className="flex items-center justify-between p-2 hover:bg-muted rounded-lg"
-                                              >
-                                                <div className="flex items-center gap-3">
-                                                  <Avatar>
-                                                    <AvatarImage src={friend.photoURL} />
-                                                    <AvatarFallback>
-                                                      {friend.firstName?.[0] || ''}{friend.lastName?.[0] || ''}
-                                                    </AvatarFallback>
-                                                  </Avatar>
-                                                  <div>
-                                                    <p className="font-medium">
-                                                      {friend.firstName} {friend.lastName}
-                                                    </p>
-                                                    <p className="text-sm text-muted-foreground">{friend.email}</p>
-                                                  </div>
-                                                </div>
-                                                <Button
-                                                  variant={selectedFriends.includes(friend.id) ? "default" : "outline"}
-                                                  size="sm"
-                                                  onClick={() => toggleFriendSelection(friend.id)}
-                                                >
-                                                  {selectedFriends.includes(friend.id) ? (
-                                                    <>
-                                                      <Check className="h-4 w-4 mr-2" />
-                                                      Selected
-                                                    </>
-                                                  ) : (
-                                                    "Select"
-                                                  )}
-                                                </Button>
-                                              </div>
-                                            ))}
-                                        </div>
-                                      </ScrollArea>
-                                      <div className="flex justify-end gap-2">
-                                        <Button variant="ghost" onClick={() => {
-                                          setIsInviteDialogOpen(false);
-                                          setSelectedFriends([]);
-                                          setActiveTeamId("");
-                                        }}>
-                                          Cancel
-                                        </Button>
-                                        <Button
-                                          onClick={() => handleInviteMembers(team.id!)}
-                                          disabled={!selectedFriends.length || isLoading.inviteMembers}
-                                        >
-                                          {isLoading.inviteMembers && (
-                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                          )}
-                                          Invite Selected
-                    </Button>
-                  </div>
-                                    </div>
-                                  </DialogContent>
-                                </Dialog>
-                              )}
-                              <Badge variant="secondary">
-                                {team.members.length} members
-                              </Badge>
-                            </div>
-                          </div>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-2">
-                            <div className="flex justify-between items-center">
-                              <Label>Team Members</Label>
-                              {team.owner === user?.uid ? (
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="text-destructive">
-                                      <Trash2 className="h-4 w-4 mr-2" />
-                                      Delete Team
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Delete Team</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        Are you sure you want to delete this team? This action cannot be undone.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                      <AlertDialogAction
-                                        onClick={() => handleDeleteTeam(team.id!)}
-                                        className="bg-destructive hover:bg-destructive/90"
-                                        disabled={isLoading.deleteTeam}
-                                      >
-                                        {isLoading.deleteTeam && (
-                                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                        )}
-                                        Delete
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              ) : (
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="text-muted-foreground">
-                                      <LogOut className="h-4 w-4 mr-2" />
-                                      Leave Team
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Leave Team</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        Are you sure you want to leave this team?
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                      <AlertDialogAction
-                                        onClick={() => handleLeaveTeam(team.id!)}
-                                        className="bg-destructive hover:bg-destructive/90"
-                                        disabled={isLoading.leaveTeam}
-                                      >
-                                        {isLoading.leaveTeam && (
-                                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                        )}
-                                        Leave
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              )}
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Create New Team</DialogTitle>
+                            <DialogDescription>
+                              Name your team and invite friends to join
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="team-name">Team Name</Label>
+                              <Input
+                                id="team-name"
+                                placeholder="Enter team name..."
+                                value={newTeamName}
+                                onChange={(e) => setNewTeamName(e.target.value)}
+                              />
                             </div>
                             <div className="space-y-2">
-                              {team.id && teamMembers[team.id]?.map((member) => (
-                                <div
-                                  key={member.id}
-                                  className="flex items-center justify-between p-2 bg-muted rounded-lg"
-                                >
-                                  <div className="flex items-center gap-3">
-                                    <Avatar>
-                                      <AvatarImage src={member.photoURL} />
-                                      <AvatarFallback>{member.displayName?.[0]}</AvatarFallback>
-                                    </Avatar>
-                                    <div>
-                                      <p className="font-medium">{member.displayName}</p>
-                                      <p className="text-sm text-muted-foreground">{member.email}</p>
+                              <Label>Select Friends to Invite</Label>
+                              <ScrollArea className="h-[200px] border rounded-md p-2">
+                                <div className="space-y-2">
+                                  {friends.map((friend) => (
+                                    <div
+                                      key={friend.id}
+                                      className="flex items-center justify-between p-2 hover:bg-muted rounded-lg"
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <Avatar>
+                                          <AvatarImage src={friend.photoURL} />
+                                          <AvatarFallback>{friend.displayName?.[0]}</AvatarFallback>
+                                        </Avatar>
+                                        <div>
+                                          <p className="font-medium">{friend.displayName}</p>
+                                          <p className="text-sm text-muted-foreground">{friend.email}</p>
+                                        </div>
+                                      </div>
+                                      <Button
+                                        variant={selectedFriends.includes(friend.id) ? "default" : "outline"}
+                                        size="sm"
+                                        onClick={() => toggleFriendSelection(friend.id)}
+                                      >
+                                        {selectedFriends.includes(friend.id) ? (
+                                          <>
+                                            <Check className="h-4 w-4 mr-2" />
+                                            Selected
+                                          </>
+                                        ) : (
+                                          "Select"
+                                        )}
+                                      </Button>
                                     </div>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    {member.id === team.owner ? (
-                                      <Badge>Owner</Badge>
-                                    ) : team.owner === user?.uid && (
-                                      <AlertDialog>
-                                        <AlertDialogTrigger asChild>
-                                          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
-                                            <UserX className="h-4 w-4" />
-                                          </Button>
-                                        </AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                          <AlertDialogHeader>
-                                            <AlertDialogTitle>Remove Member</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                              Are you sure you want to remove {member.displayName} from the team?
-                                            </AlertDialogDescription>
-                                          </AlertDialogHeader>
-                                          <AlertDialogFooter>
-                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction
-                                              onClick={() => handleRemoveMember(team.id!, member.id)}
-                                              className="bg-destructive hover:bg-destructive/90"
-                                              disabled={isLoading.removeMember}
-                                            >
-                                              {isLoading.removeMember && (
-                                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                              )}
-                                              Remove
-                                            </AlertDialogAction>
-                                          </AlertDialogFooter>
-                                        </AlertDialogContent>
-                                      </AlertDialog>
-            )}
-          </div>
+                                  ))}
                                 </div>
-                              ))}
+                              </ScrollArea>
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <Button variant="ghost" onClick={() => {
+                                setIsDialogOpen(false)
+                                setNewTeamName("")
+                                setSelectedFriends([])
+                              }}>
+                                Cancel
+                              </Button>
+                              <Button 
+                                onClick={handleCreateTeam} 
+                                disabled={!newTeamName.trim()}
+                              >
+                                Create Team
+                              </Button>
                             </div>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </ScrollArea>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-[400px]">
+                      <div className="space-y-4">
+                        {teams.map((team) => (
+                          <Card key={team.id}>
+                            <CardHeader>
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <CardTitle>{team.name}</CardTitle>
+                                  <CardDescription>
+                                    {team.owner === user?.uid ? "Team Owner" : "Team Member"}
+                                  </CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {team.owner === user?.uid && (
+                                    <Dialog open={isInviteDialogOpen && activeTeamId === team.id} 
+                                           onOpenChange={(open) => {
+                                             setIsInviteDialogOpen(open);
+                                             if (open) setActiveTeamId(team.id!);
+                                             else {
+                                               setSelectedFriends([]);
+                                               setActiveTeamId("");
+                                             }
+                                           }}>
+                                      <DialogTrigger asChild>
+                                        <Button variant="outline" size="sm">
+                                          <UserPlus className="h-4 w-4 mr-2" />
+                                          Invite Members
+                                        </Button>
+                                      </DialogTrigger>
+                                      <DialogContent>
+                                        <DialogHeader>
+                                          <DialogTitle>Invite Team Members</DialogTitle>
+                                          <DialogDescription>
+                                            Select friends to invite to {team.name}
+                                          </DialogDescription>
+                                        </DialogHeader>
+                                        <div className="space-y-4">
+                                          <ScrollArea className="h-[200px] border rounded-md p-2">
+                                            <div className="space-y-2">
+                                              {friends
+                                                .filter(friend => !team.members.includes(friend.id))
+                                                .map((friend) => (
+                                                  <div
+                                                    key={friend.id}
+                                                    className="flex items-center justify-between p-2 hover:bg-muted rounded-lg"
+                                                  >
+                                                    <div className="flex items-center gap-3">
+                                                      <Avatar>
+                                                        <AvatarImage src={friend.photoURL} />
+                                                        <AvatarFallback>
+                                                          {friend.firstName?.[0] || ''}{friend.lastName?.[0] || ''}
+                                                        </AvatarFallback>
+                                                      </Avatar>
+                                                      <div>
+                                                        <p className="font-medium">
+                                                          {friend.firstName} {friend.lastName}
+                                                        </p>
+                                                        <p className="text-sm text-muted-foreground">{friend.email}</p>
+                                                      </div>
+                                                    </div>
+                                                    <Button
+                                                      variant={selectedFriends.includes(friend.id) ? "default" : "outline"}
+                                                      size="sm"
+                                                      onClick={() => toggleFriendSelection(friend.id)}
+                                                    >
+                                                      {selectedFriends.includes(friend.id) ? (
+                                                        <>
+                                                          <Check className="h-4 w-4 mr-2" />
+                                                          Selected
+                                                        </>
+                                                      ) : (
+                                                        "Select"
+                                                      )}
+                                                    </Button>
+                                                  </div>
+                                                ))}
+                                            </div>
+                                          </ScrollArea>
+                                          <div className="flex justify-end gap-2">
+                                            <Button variant="ghost" onClick={() => {
+                                              setIsInviteDialogOpen(false);
+                                              setSelectedFriends([]);
+                                              setActiveTeamId("");
+                                            }}>
+                                              Cancel
+                                            </Button>
+                                            <Button
+                                              onClick={() => handleInviteMembers(team.id!)}
+                                              disabled={!selectedFriends.length || isLoading.inviteMembers}
+                                            >
+                                              {isLoading.inviteMembers && (
+                                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                              )}
+                                              Invite Selected
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      </DialogContent>
+                                    </Dialog>
+                                  )}
+                                  <Badge variant="secondary">
+                                    {team.members.length} members
+                                  </Badge>
+                                </div>
+                              </div>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <Label>Team Members</Label>
+                                  {team.owner === user?.uid ? (
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="text-destructive">
+                                          <Trash2 className="h-4 w-4 mr-2" />
+                                          Delete Team
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Delete Team</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            Are you sure you want to delete this team? This action cannot be undone.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction
+                                            onClick={() => handleDeleteTeam(team.id!)}
+                                            className="bg-destructive hover:bg-destructive/90"
+                                            disabled={isLoading.deleteTeam}
+                                          >
+                                            {isLoading.deleteTeam && (
+                                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            )}
+                                            Delete
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  ) : (
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="text-muted-foreground">
+                                          <LogOut className="h-4 w-4 mr-2" />
+                                          Leave Team
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Leave Team</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            Are you sure you want to leave this team?
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction
+                                            onClick={() => handleLeaveTeam(team.id!)}
+                                            className="bg-destructive hover:bg-destructive/90"
+                                            disabled={isLoading.leaveTeam}
+                                          >
+                                            {isLoading.leaveTeam && (
+                                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            )}
+                                            Leave
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  )}
+                                </div>
+                                <div className="space-y-2">
+                                  {team.id && teamMembers[team.id]?.map((member) => (
+                                    <div
+                                      key={member.id}
+                                      className="flex items-center justify-between p-2 bg-muted rounded-lg"
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <Avatar>
+                                          <AvatarImage src={member.photoURL} />
+                                          <AvatarFallback>{member.displayName?.[0]}</AvatarFallback>
+                                        </Avatar>
+                                        <div>
+                                          <p className="font-medium">{member.displayName}</p>
+                                          <p className="text-sm text-muted-foreground">{member.email}</p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        {member.id === team.owner ? (
+                                          <Badge>Owner</Badge>
+                                        ) : team.owner === user?.uid && (
+                                          <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
+                                                <UserX className="h-4 w-4" />
+                                              </Button>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                              <AlertDialogHeader>
+                                                <AlertDialogTitle>Remove Member</AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                  Are you sure you want to remove {member.displayName} from the team?
+                                                </AlertDialogDescription>
+                                              </AlertDialogHeader>
+                                              <AlertDialogFooter>
+                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction
+                                                  onClick={() => handleRemoveMember(team.id!, member.id)}
+                                                  className="bg-destructive hover:bg-destructive/90"
+                                                  disabled={isLoading.removeMember}
+                                                >
+                                                  {isLoading.removeMember && (
+                                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                  )}
+                                                  Remove
+                                                </AlertDialogAction>
+                                              </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                          </AlertDialog>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
-          )}
-        </TabsContent>
-      </Tabs>
     </div>
   )
 } 

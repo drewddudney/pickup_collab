@@ -29,20 +29,23 @@ export function Header() {
       refreshUser();
     }
 
-    // Set up an interval to refresh user data every minute
+    // Set up an interval to refresh user data less frequently (every 5 minutes instead of every minute)
     const intervalId = setInterval(() => {
       if (refreshUser) {
         refreshUser();
         // Update avatar key to force re-render
         setAvatarKey(Date.now());
       }
-    }, 60000); // 1 minute
+    }, 300000); // 5 minutes (300000ms) instead of 1 minute
 
-    // Also refresh when tab becomes active
+    // Also refresh when tab becomes active, but only if it's been at least 5 minutes since the last refresh
+    let lastRefreshTime = Date.now();
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && refreshUser) {
+      const now = Date.now();
+      if (document.visibilityState === 'visible' && refreshUser && (now - lastRefreshTime > 300000)) {
         refreshUser();
         setAvatarKey(Date.now());
+        lastRefreshTime = now;
       }
     };
     

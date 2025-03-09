@@ -133,6 +133,11 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
     // Mark as read
     markAsRead(notification.id);
     
+    // If it's a friend request that has been handled, delete the notification
+    if ((notification.type === 'friend_request') && notification.handled) {
+      deleteNotification(notification.id);
+    }
+    
     // Navigate to notifications page
     setActiveTab('notifications');
     // The setActiveTab function in AppContext will handle the URL update
@@ -148,6 +153,29 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
           (trigger as HTMLElement).click();
         }
       }
+    }
+  };
+
+  // Add a function to delete a notification
+  const deleteNotification = async (notificationId: string) => {
+    if (!user?.uid) return;
+    
+    try {
+      const notificationRef = doc(db, "notifications", notificationId);
+      await deleteDoc(notificationRef);
+      
+      // Update local state
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
+      // Update unread count if needed
+      const deletedNotification = notifications.find(n => n.id === notificationId);
+      if (deletedNotification && !deletedNotification.read) {
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+      
+      console.log("Notification deleted:", notificationId);
+    } catch (error) {
+      console.error("Error deleting notification:", error);
     }
   };
 
@@ -231,14 +259,23 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
         
         console.log("Deleted friend request");
         
-        // Update the local state
+        // Mark the notification as handled
+        const notificationRef = doc(db, "notifications", notification.id);
+        await updateDoc(notificationRef, {
+          handled: true
+        });
+        
+        // Update local state
         setNotifications(prev => 
-          prev.map((n: ExtendedNotification) => 
+          prev.map(n => 
             n.id === notification.id 
               ? { ...n, handled: true } 
               : n
           )
         );
+        
+        // Delete the notification after it's been handled
+        deleteNotification(notification.id);
         
         toast({
           title: "Friend request accepted",
@@ -280,14 +317,23 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
       // Delete the friend request
       await deleteDoc(doc(db, "friendRequests", requestId));
       
-      // Update the local state
+      // Mark the notification as handled
+      const notificationRef = doc(db, "notifications", notification.id);
+      await updateDoc(notificationRef, {
+        handled: true
+      });
+      
+      // Update local state
       setNotifications(prev => 
-        prev.map((n: ExtendedNotification) => 
+        prev.map(n => 
           n.id === notification.id 
             ? { ...n, handled: true } 
             : n
         )
       );
+      
+      // Delete the notification after it's been handled
+      deleteNotification(notification.id);
       
       toast({
         title: "Friend request declined",

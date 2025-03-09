@@ -189,18 +189,15 @@ export default function NotificationsPage() {
         
         console.log("Deleted friend request");
         
-        // Update the local state
-        setNotifications(prev => 
-          prev.map((n: ExtendedNotification) => 
-            n.id === notification.id 
-              ? { ...n, handled: true } 
-              : n
-          )
-        );
+        // After successfully accepting the friend request, delete the notification
+        await deleteDoc(doc(db, "notifications", notification.id));
+        
+        // Update local state
+        setNotifications(prev => prev.filter(n => n.id !== notification.id));
         
         toast({
           title: "Friend request accepted",
-          description: "You are now friends",
+          description: `You are now friends with ${notification.data?.fromUserName || 'this user'}.`,
         });
       } catch (error) {
         console.error("Error accepting friend request:", error);
@@ -238,18 +235,15 @@ export default function NotificationsPage() {
       // Delete the friend request
       await deleteDoc(doc(db, "friendRequests", requestId))
       
-      // Update the local state
-      setNotifications(prev => 
-        prev.map(n => 
-          n.id === notification.id 
-            ? { ...n, handled: true } 
-            : n
-        )
-      )
+      // After successfully declining the friend request, delete the notification
+      await deleteDoc(doc(db, "notifications", notification.id));
+      
+      // Update local state
+      setNotifications(prev => prev.filter(n => n.id !== notification.id));
       
       toast({
         title: "Friend request declined",
-        description: "Friend request has been declined",
+        description: `You declined the friend request from ${notification.data?.fromUserName || 'this user'}.`,
       })
     } catch (error) {
       console.error("Error declining friend request:", error)
@@ -261,25 +255,31 @@ export default function NotificationsPage() {
     }
   }
 
-  // Handle notification click to navigate to relevant section
+  // Add a function to delete a notification
+  const deleteNotification = async (notificationId: string) => {
+    if (!user?.uid) return;
+    
+    try {
+      const notificationRef = doc(db, "notifications", notificationId);
+      await deleteDoc(notificationRef);
+      
+      // Update local state
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
+      console.log("Notification deleted:", notificationId);
+    } catch (error) {
+      console.error("Error deleting notification:", error);
+    }
+  };
+
+  // Handle notification click - delete if it's been handled
   const handleNotificationClick = (notification: ExtendedNotification) => {
     // Mark as read
-    markAsRead(notification.id)
+    markAsRead(notification.id);
     
-    // Navigate based on notification type
-    switch (notification.type) {
-      case "friend_request":
-        setActiveTab("teammates")
-        break
-      case "game_invite":
-        setActiveTab("schedule")
-        break
-      case "team_invite":
-        setActiveTab("teammates")
-        break
-      default:
-        // Do nothing for other notification types
-        break
+    // If the notification has been handled, delete it
+    if (notification.handled) {
+      deleteNotification(notification.id);
     }
   }
 

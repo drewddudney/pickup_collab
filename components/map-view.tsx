@@ -374,7 +374,6 @@ export default function MapView() {
   const [filteredLocations, setFilteredLocations] = useState<ExtendedLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [useMockData, setUseMockData] = useState(false);
   const [center, setCenter] = useState<[number, number]>([30.2672, -97.7431]); // Austin
   const [newLocation, setNewLocation] = useState<Partial<ExtendedLocation>>({
     name: '',
@@ -649,7 +648,6 @@ export default function MapView() {
     console.log("DEBUG: Google Maps API loaded:", isLoaded);
     console.log("DEBUG: Selected sport:", selectedSport);
     console.log("DEBUG: User authenticated:", !!user);
-    console.log("DEBUG: Using mock data:", useMockData);
     console.log("DEBUG: Map center:", center);
     console.log("DEBUG: Locations count:", locations.length);
     console.log("DEBUG: Map type:", mapType);
@@ -688,26 +686,14 @@ export default function MapView() {
       }
       console.log("DEBUG: WebGL supported:", webglSupported);
     }
-  }, [isLoaded, selectedSport, user, useMockData, center, locations, mapType]);
+  }, [isLoaded, selectedSport, user, center, locations, mapType]);
 
-  // Test Firebase connection
+  // Remove the useMockData state and testConnection function
   useEffect(() => {
-    const testConnection = async () => {
-      if (!user) return;
-      
-      try {
-        // Try to access a document that should be accessible to all authenticated users
-        const testDoc = await getDoc(doc(db, 'users', user.uid));
-        console.log('Firebase connection test:', testDoc.exists() ? 'Success' : 'User document not found');
-        setUseMockData(false);
-      } catch (error) {
-        console.error('Firebase connection test failed:', error);
-        setError('Firebase connection failed. Using mock data for demonstration.');
-        setUseMockData(true);
-      }
-    };
-    
-    testConnection();
+    // Fetch locations when component mounts or when user changes
+    if (user) {
+      console.log('User authenticated, ready to fetch locations');
+    }
   }, [user]);
 
   // Fetch locations for current sport
@@ -724,16 +710,6 @@ export default function MapView() {
         return;
       }
       
-      // If we're using mock data, filter by sport and return
-      if (useMockData) {
-        const filteredLocations = MOCK_LOCATIONS.filter(
-          loc => loc.sports?.some(s => s.sportId === selectedSport?.id)
-        );
-        setLocations(filteredLocations);
-        setLoading(false);
-        return;
-      }
-      
       try {
         // Make sure we have a valid sport ID before querying
         if (!selectedSport?.id) {
@@ -742,7 +718,7 @@ export default function MapView() {
           return;
         }
 
-        // Make sure auth is initialized and token is refreshed
+        // Make sure auth is initialized
         if (!auth.currentUser) {
           console.error('User not authenticated');
           setLoading(false);
@@ -750,9 +726,8 @@ export default function MapView() {
           return;
         }
 
-        // Force token refresh to ensure we have a valid token
-        await auth.currentUser.getIdToken(true);
-
+        console.log(`Fetching locations for sport: ${selectedSport.name}`);
+        
         const q = query(
           collection(db, 'locations')
         );
@@ -771,87 +746,95 @@ export default function MapView() {
           };
         }) as ExtendedLocation[];
 
+        console.log(`Found ${locationsData.length} total locations`);
+
         // Filter locations that have the selected sport
         const filteredLocations = locationsData.filter(
           loc => loc.sports.some(s => s.sportId === selectedSport.id)
         );
         
+        console.log(`Found ${filteredLocations.length} locations for ${selectedSport.name}`);
+        
         setLocations(filteredLocations);
+        setFilteredLocations(filteredLocations);
         setError(null);
       } catch (error) {
         console.error('Error fetching locations:', error);
-        
-        // Fall back to mock data if Firebase query fails
-        setError('Failed to load locations from Firebase. Using mock data for demonstration.');
-        const filteredLocations = MOCK_LOCATIONS.filter(
-          loc => loc.sports?.some(s => s.sportId === selectedSport?.id)
-        );
-        setLocations(filteredLocations);
-        setUseMockData(true);
+        setError('Failed to load locations. Please try again later.');
+        setLocations([]);
       } finally {
         setLoading(false);
       }
     };
 
     fetchLocations();
-  }, [user, authLoading, selectedSport?.id, toast, useMockData]);
+  }, [user, authLoading, selectedSport?.id]);
 
   const handleAddLocation = async () => {
     if (!user) return;
     
+    if (!hasValidLocation(newLocation)) {
+      toast({
+        title: "Invalid location",
+        description: "Please provide a name, address, and valid coordinates.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     try {
-      // If using mock data, just add to local state
-      if (useMockData) {
-        const mockLocation: ExtendedLocation = {
-          id: `mock-${Date.now()}`,
-          ...newLocation as Omit<ExtendedLocation, 'id'>,
-          sports: [{ sportId: selectedSport?.id || 'basketball', courtCount: 1 }],
-          createdBy: user.uid,
-          createdAt: Date.now(),
-        };
-        
-        setLocations(prev => [...prev, mockLocation]);
-        setNewLocation({ name: '', address: '', lat: 0, lng: 0, hasLights: false, accessType: 'public', venueType: 'outdoor', sports: [] });
-        setIsDialogOpen(false);
-        
-        toast({
-          title: 'Success',
-          description: 'Location added successfully (mock data)',
-        });
-        return;
-      }
-      
-      // Force token refresh to ensure we have a valid token
-      await auth.currentUser?.getIdToken(true);
-      
+      // Prepare the location data
       const locationData: Omit<ExtendedLocation, 'id'> = {
-        ...newLocation as Omit<ExtendedLocation, 'id'>,
-        sports: [{ sportId: selectedSport?.id || 'basketball', courtCount: 1 }],
+        name: newLocation.name || '',
+        address: newLocation.address || '',
+        lat: newLocation.lat || 0,
+        lng: newLocation.lng || 0,
         createdBy: user.uid,
         createdAt: Date.now(),
+        hasLights: newLocation.hasLights || false,
+        accessType: newLocation.accessType || 'public',
+        hourlyRate: newLocation.hourlyRate || 0,
+        venueType: newLocation.venueType || 'outdoor',
+        sports: newLocation.sports || []
       };
-
-      const docRef = await addDoc(collection(db, 'locations'), locationData);
-      const newLocationWithId = { ...locationData, id: docRef.id };
+      
+      // Add to Firestore
+      const docRef = await addDoc(collection(db, "locations"), locationData);
+      
+      // Add to local state with the new ID
+      const newLocationWithId: ExtendedLocation = {
+        ...locationData,
+        id: docRef.id
+      };
       
       setLocations(prev => [...prev, newLocationWithId]);
-      setNewLocation({ name: '', address: '', lat: 0, lng: 0, hasLights: false, accessType: 'public', venueType: 'outdoor', sports: [] });
-      setIsDialogOpen(false);
       
       toast({
-        title: 'Success',
-        description: 'Location added successfully',
+        title: "Success",
+        description: "Location added successfully!",
       });
+      
+      // Reset form
+      setNewLocation({
+        name: '',
+        address: '',
+        lat: 0,
+        lng: 0,
+        hasLights: false,
+        accessType: 'public',
+        venueType: 'outdoor',
+        sports: []
+      });
+      
+      // Close dialog
+      setIsDialogOpen(false);
+      setIsAddingLocation(false);
     } catch (error) {
-      console.error('Error adding location:', error);
-      
-      // Fall back to mock data if Firebase operation fails
-      setUseMockData(true);
-      
+      console.error("Error adding location:", error);
       toast({
-        title: 'Error',
-        description: 'Failed to add location to Firebase. Using mock data instead.',
-        variant: 'destructive',
+        title: "Error",
+        description: "Failed to add location. Please try again.",
+        variant: "destructive"
       });
     }
   };
@@ -860,37 +843,22 @@ export default function MapView() {
     if (!user) return;
     
     try {
-      // If using mock data, just remove from local state
-      if (useMockData || locationId.startsWith('mock-')) {
-        setLocations(prev => prev.filter(loc => loc.id !== locationId));
-        
-        toast({
-          title: 'Success',
-          description: 'Location deleted successfully (mock data)',
-        });
-        return;
-      }
+      // Delete from Firestore
+      await deleteDoc(doc(db, "locations", locationId));
       
-      // Force token refresh to ensure we have a valid token
-      await auth.currentUser?.getIdToken(true);
-      
-      await deleteDoc(doc(db, 'locations', locationId));
+      // Remove from local state
       setLocations(prev => prev.filter(loc => loc.id !== locationId));
       
       toast({
-        title: 'Success',
-        description: 'Location deleted successfully',
+        title: "Success",
+        description: "Location deleted successfully!",
       });
     } catch (error) {
-      console.error('Error deleting location:', error);
-      
-      // Fall back to mock data if Firebase operation fails
-      setUseMockData(true);
-      
+      console.error("Error deleting location:", error);
       toast({
-        title: 'Error',
-        description: 'Failed to delete location from Firebase. Using mock data instead.',
-        variant: 'destructive',
+        title: "Error",
+        description: "Failed to delete location. Please try again.",
+        variant: "destructive"
       });
     }
   };

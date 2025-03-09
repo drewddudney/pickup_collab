@@ -353,10 +353,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!auth.currentUser) return;
     
     try {
-      // Force a token refresh
-      await auth.currentUser.getIdToken(true);
-      
-      // Update the user state with the latest user data
+      // Don't force a token refresh every time - this is causing quota exceeded errors
+      // Only update the user state with the current user data
       setUser({ ...auth.currentUser });
       
       console.log("User data refreshed");

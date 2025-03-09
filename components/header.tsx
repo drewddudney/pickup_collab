@@ -35,20 +35,27 @@ export function Header() {
     }
   }, [logout])
 
+  // Update URL and state when navigating to different tabs
+  const navigateToTab = (tab: string) => {
+    setActiveTab(tab);
+    // The setActiveTab function in AppContext will handle the URL update
+    // through the onTabChange callback in the parent component
+  }
+
   const showProfile = () => {
-    setActiveTab('profile');
+    navigateToTab('profile');
   }
 
   const showSettings = () => {
-    setActiveTab('settings');
+    navigateToTab('settings');
   }
 
   const showNotifications = () => {
-    setActiveTab('notifications');
+    navigateToTab('notifications');
   }
 
   const goToHome = () => {
-    setActiveTab('home');
+    navigateToTab('home');
   }
 
   const getInitials = () => {

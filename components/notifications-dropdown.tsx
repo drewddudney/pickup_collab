@@ -45,6 +45,8 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
       onShowAll();
     } else {
       setActiveTab('notifications');
+      // The setActiveTab function in AppContext will handle the URL update
+      // through the onTabChange callback in the parent component
     }
   }
 

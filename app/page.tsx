@@ -65,6 +65,7 @@ export default function Home() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
   const viewParam = searchParams.get('view');
+  const appTabParam = searchParams.get('appTab');
   
   // Set initial active tab based on URL parameters for auth
   const initialTab = tabParam === 'signup' ? 'signup' : 'login';
@@ -73,7 +74,10 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [activeView, setActiveView] = useState<string | null>(initialView);
 
-  // Update URL when tab changes
+  // For authenticated users, we'll use this state for the main app tabs
+  const [activeAppTab, setActiveAppTab] = useState<string>(appTabParam || 'home');
+
+  // Update URL when auth tab changes
   const handleAuthTabChange = (tab: string) => {
     setActiveTab(tab);
     // Update URL without full page reload
@@ -95,12 +99,13 @@ export default function Home() {
     window.history.pushState({}, '', url);
   };
 
-  // For authenticated users, we'll use this state for the main app tabs
-  const [activeAppTab, setActiveAppTab] = useState<string>('home');
-
-  // Create a function to handle tab changes from both the UI and the context
-  const handleTabChange = (tab: string) => {
+  // Update URL when app tab changes
+  const handleAppTabChange = (tab: string) => {
     setActiveAppTab(tab);
+    // Update URL without full page reload
+    const url = new URL(window.location.href);
+    url.searchParams.set('appTab', tab);
+    window.history.pushState({}, '', url);
   };
 
   // Sync with URL parameters when they change
@@ -113,7 +118,10 @@ export default function Home() {
     } else {
       setActiveView(null);
     }
-  }, [tabParam, viewParam]);
+    if (appTabParam && ['home', 'map', 'schedule', 'teammates', 'profile', 'settings', 'notifications', 'player-search'].includes(appTabParam)) {
+      setActiveAppTab(appTabParam);
+    }
+  }, [tabParam, viewParam, appTabParam]);
 
   // Show loading state during auth initialization
   if (loading && !authInitialized) {
@@ -125,14 +133,14 @@ export default function Home() {
     return (
       <AppContextProvider 
         initialTab={activeAppTab}
-        onTabChange={handleTabChange}
+        onTabChange={handleAppTabChange}
       >
         <div className="flex flex-col h-screen">
           <Header />
           <main className="flex-1 overflow-auto pb-20">
             <Tabs 
               value={activeAppTab} 
-              onValueChange={handleTabChange} 
+              onValueChange={handleAppTabChange} 
               className="h-full"
             >
               <TabsContent value="home" className="h-full">

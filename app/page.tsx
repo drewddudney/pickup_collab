@@ -14,8 +14,8 @@ import { Home as HomeIcon, Map, Calendar, Users, Bell } from 'lucide-react';
 import { Header } from '@/components/header';
 import { AppContextProvider } from '@/contexts/AppContext';
 
-// Import ForgotPasswordForm directly
-import { ForgotPasswordForm } from "../components/auth/ForgotPasswordForm";
+// Import ForgotPasswordForm directly with absolute path
+import { ForgotPasswordForm } from "@/components/auth/ForgotPasswordForm";
 
 // Dynamically import content components with loading states
 const HomeContent = dynamic(() => import('@/app/home/page'), {
@@ -26,8 +26,8 @@ const MapView = dynamic(() => import('@/components/map-view'), {
   loading: () => <div className="flex justify-center items-center h-full"><Loading /></div>
 });
 
-// Update the import path for ScheduleContent
-const ScheduleContent = dynamic(() => import('../app/schedule/page-content'), {
+// Update the import path for ScheduleContent with absolute path
+const ScheduleContent = dynamic(() => import('@/app/schedule/page-content'), {
   loading: () => <div className="flex justify-center items-center h-full"><Loading /></div>
 });
 

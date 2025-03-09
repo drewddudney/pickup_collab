@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import {
   User,
   GoogleAuthProvider,
@@ -30,6 +30,7 @@ interface AuthContextType {
   signUpWithEmail: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
   updateUserProfile: (options: ProfileUpdateOptions) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 interface UserProfile {
@@ -53,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authInitialized, setAuthInitialized] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const previousUserRef = useRef<User | null>(null);
 
   // Check for corrupted auth state in localStorage
   useEffect(() => {
@@ -347,6 +349,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Add a function to refresh the user data
+  const refreshUser = async () => {
+    if (!auth.currentUser) return;
+    
+    try {
+      // Only update the user state if the user data has actually changed
+      // This prevents infinite update loops
+      const currentUser = auth.currentUser;
+      const prevUser = previousUserRef.current;
+      
+      // Check if user data has changed
+      if (
+        !prevUser || 
+        prevUser.displayName !== currentUser.displayName || 
+        prevUser.photoURL !== currentUser.photoURL || 
+        prevUser.email !== currentUser.email
+      ) {
+        // Update the previous user ref
+        previousUserRef.current = { ...currentUser };
+        
+        // Update the user state
+        setUser({ ...currentUser });
+        
+        console.log("User data refreshed");
+      } else {
+        console.log("User data unchanged, skipping refresh");
+      }
+    } catch (error) {
+      console.error("Error refreshing user data:", error);
+    }
+  };
+
+  // Update previousUserRef when user changes
+  useEffect(() => {
+    if (user) {
+      previousUserRef.current = user;
+    }
+  }, [user]);
+
   const value = {
     user,
     loading,
@@ -357,6 +398,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUpWithEmail,
     updateUserProfile,
     logout,
+    refreshUser,
   };
 
   // Show error message if auth initialization failed

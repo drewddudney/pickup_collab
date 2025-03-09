@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Bell, Check, X, ArrowLeft } from "lucide-react"
+import { Bell, Check, X, ArrowLeft, Trash2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { Badge } from "@/components/ui/badge"
 import { Loader2 } from "lucide-react"
@@ -43,6 +43,7 @@ export default function NotificationsPage() {
   const { setActiveTab } = useAppContext()
   const [notifications, setNotifications] = useState<ExtendedNotification[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isClearingAll, setIsClearingAll] = useState(false)
 
   // Fetch notifications
   useEffect(() => {
@@ -188,18 +189,15 @@ export default function NotificationsPage() {
         
         console.log("Deleted friend request");
         
-        // Update the local state
-        setNotifications(prev => 
-          prev.map((n: ExtendedNotification) => 
-            n.id === notification.id 
-              ? { ...n, handled: true } 
-              : n
-          )
-        );
+        // After successfully accepting the friend request, delete the notification
+        await deleteDoc(doc(db, "notifications", notification.id));
+        
+        // Update local state
+        setNotifications(prev => prev.filter(n => n.id !== notification.id));
         
         toast({
           title: "Friend request accepted",
-          description: "You are now friends",
+          description: `You are now friends with ${notification.data?.fromUserName || 'this user'}.`,
         });
       } catch (error) {
         console.error("Error accepting friend request:", error);
@@ -237,18 +235,15 @@ export default function NotificationsPage() {
       // Delete the friend request
       await deleteDoc(doc(db, "friendRequests", requestId))
       
-      // Update the local state
-      setNotifications(prev => 
-        prev.map(n => 
-          n.id === notification.id 
-            ? { ...n, handled: true } 
-            : n
-        )
-      )
+      // After successfully declining the friend request, delete the notification
+      await deleteDoc(doc(db, "notifications", notification.id));
+      
+      // Update local state
+      setNotifications(prev => prev.filter(n => n.id !== notification.id));
       
       toast({
         title: "Friend request declined",
-        description: "Friend request has been declined",
+        description: `You declined the friend request from ${notification.data?.fromUserName || 'this user'}.`,
       })
     } catch (error) {
       console.error("Error declining friend request:", error)
@@ -260,25 +255,63 @@ export default function NotificationsPage() {
     }
   }
 
-  // Handle notification click to navigate to relevant section
+  // Add a function to delete a notification
+  const deleteNotification = async (notificationId: string) => {
+    if (!user?.uid) return;
+    
+    try {
+      const notificationRef = doc(db, "notifications", notificationId);
+      await deleteDoc(notificationRef);
+      
+      // Update local state
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      
+      console.log("Notification deleted:", notificationId);
+    } catch (error) {
+      console.error("Error deleting notification:", error);
+    }
+  };
+
+  // Handle notification click - delete if it's been handled
   const handleNotificationClick = (notification: ExtendedNotification) => {
     // Mark as read
-    markAsRead(notification.id)
+    markAsRead(notification.id);
     
-    // Navigate based on notification type
-    switch (notification.type) {
-      case "friend_request":
-        setActiveTab("teammates")
-        break
-      case "game_invite":
-        setActiveTab("schedule")
-        break
-      case "team_invite":
-        setActiveTab("teammates")
-        break
-      default:
-        // Do nothing for other notification types
-        break
+    // If the notification has been handled, delete it
+    if (notification.handled) {
+      deleteNotification(notification.id);
+    }
+  }
+
+  // Clear all notifications
+  const clearAllNotifications = async () => {
+    if (!user?.uid || notifications.length === 0) return
+    
+    setIsClearingAll(true)
+    try {
+      const batch = writeBatch(db)
+      
+      notifications.forEach(notification => {
+        const notificationRef = doc(db, "notifications", notification.id)
+        batch.delete(notificationRef)
+      })
+      
+      await batch.commit()
+      
+      setNotifications([])
+      toast({
+        title: "Success",
+        description: "All notifications have been cleared.",
+      })
+    } catch (error) {
+      console.error("Error clearing notifications:", error)
+      toast({
+        title: "Error",
+        description: "Failed to clear notifications. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsClearingAll(false)
     }
   }
 
@@ -321,7 +354,30 @@ export default function NotificationsPage() {
             <CardTitle>Notifications</CardTitle>
             <CardDescription>Your recent notifications and alerts</CardDescription>
           </div>
-          <Button variant="outline" onClick={goToHome}>Back to Home</Button>
+          <div className="flex items-center">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={goToHome}
+              className="mr-2"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearAllNotifications}
+              disabled={isLoading || isClearingAll || notifications.length === 0}
+              className="flex items-center"
+            >
+              {isClearingAll ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Clear All
+            </Button>
+          </div>
         </CardHeader>
         
         <CardContent>

@@ -8,7 +8,7 @@ import { Loading } from "@/components/ui/loading";
 import { AuthLayout } from "@/app/auth-layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { Home as HomeIcon, Map, Calendar, Users, Bell } from 'lucide-react';
 import { Header } from '@/components/header';
@@ -61,9 +61,11 @@ const PlayerSearchContent = dynamic(() => import('@/app/player-search/page'), {
 
 export default function Home() {
   const { user, loading, authInitialized } = useAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
   const viewParam = searchParams.get('view');
+  const appTabParam = searchParams.get('appTab');
   
   // Set initial active tab based on URL parameters for auth
   const initialTab = tabParam === 'signup' ? 'signup' : 'login';
@@ -73,12 +75,53 @@ export default function Home() {
   const [activeView, setActiveView] = useState<string | null>(initialView);
 
   // For authenticated users, we'll use this state for the main app tabs
-  const [activeAppTab, setActiveAppTab] = useState<string>('home');
+  const [activeAppTab, setActiveAppTab] = useState<string>(appTabParam || 'home');
 
-  // Create a function to handle tab changes from both the UI and the context
-  const handleTabChange = (tab: string) => {
-    setActiveAppTab(tab);
+  // Update URL when auth tab changes
+  const handleAuthTabChange = (tab: string) => {
+    setActiveTab(tab);
+    // Update URL without full page reload
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', tab);
+    window.history.pushState({}, '', url);
   };
+
+  // Update URL when view changes
+  const handleViewChange = (view: string | null) => {
+    setActiveView(view);
+    // Update URL without full page reload
+    const url = new URL(window.location.href);
+    if (view) {
+      url.searchParams.set('view', view);
+    } else {
+      url.searchParams.delete('view');
+    }
+    window.history.pushState({}, '', url);
+  };
+
+  // Update URL when app tab changes
+  const handleAppTabChange = (tab: string) => {
+    setActiveAppTab(tab);
+    // Update URL without full page reload
+    const url = new URL(window.location.href);
+    url.searchParams.set('appTab', tab);
+    window.history.pushState({}, '', url);
+  };
+
+  // Sync with URL parameters when they change
+  useEffect(() => {
+    if (tabParam) {
+      setActiveTab(tabParam === 'signup' ? 'signup' : 'login');
+    }
+    if (viewParam === 'forgot-password') {
+      setActiveView('forgot-password');
+    } else {
+      setActiveView(null);
+    }
+    if (appTabParam && ['home', 'map', 'schedule', 'teammates', 'profile', 'settings', 'notifications', 'player-search'].includes(appTabParam)) {
+      setActiveAppTab(appTabParam);
+    }
+  }, [tabParam, viewParam, appTabParam]);
 
   // Show loading state during auth initialization
   if (loading && !authInitialized) {
@@ -90,14 +133,14 @@ export default function Home() {
     return (
       <AppContextProvider 
         initialTab={activeAppTab}
-        onTabChange={handleTabChange}
+        onTabChange={handleAppTabChange}
       >
         <div className="flex flex-col h-screen">
           <Header />
           <main className="flex-1 overflow-auto pb-20">
             <Tabs 
               value={activeAppTab} 
-              onValueChange={handleTabChange} 
+              onValueChange={handleAppTabChange} 
               className="h-full"
             >
               <TabsContent value="home" className="h-full">
@@ -182,7 +225,7 @@ export default function Home() {
                     </button>
                     <button 
                       className="text-sm text-muted-foreground"
-                      onClick={() => setActiveView(null)}
+                      onClick={() => handleViewChange(null)}
                     >
                       Back to Login
                     </button>
@@ -190,13 +233,13 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+              <Tabs value={activeTab} onValueChange={handleAuthTabChange} className="w-full">
                 <TabsList className="grid w-full grid-cols-2 mb-4">
                   <TabsTrigger value="login" className="text-center">Login</TabsTrigger>
                   <TabsTrigger value="signup" className="text-center">Sign Up</TabsTrigger>
                 </TabsList>
                 <TabsContent value="login">
-                  <LoginForm onForgotPassword={() => setActiveView('forgot-password')} />
+                  <LoginForm onForgotPassword={() => handleViewChange('forgot-password')} />
                 </TabsContent>
                 <TabsContent value="signup">
                   <SignUpForm />

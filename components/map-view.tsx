@@ -225,92 +225,77 @@ function getOrCreateMapInstance(containerId: string, center: [number, number], z
     try {
       console.log("DEBUG: Creating new map instance");
       
-      // Wait for the DOM to be ready
-      setTimeout(() => {
-        try {
-          // Check if the container exists
-          const container = document.getElementById(containerId);
-          if (!container) {
-            console.error(`DEBUG: Container ${containerId} not found`);
-            reject(new Error(`Container ${containerId} not found`));
-            return;
-          }
-          
+      // Wait for the DOM to be ready and check multiple times for the container
+      let attempts = 0;
+      const maxAttempts = 10;
+      const checkInterval = 100; // ms
+      
+      const checkForContainer = () => {
+        // Check if the container exists
+        const container = document.getElementById(containerId);
+        
+        if (container && container.clientWidth > 0 && container.clientHeight > 0) {
           console.log(`DEBUG: Container ${containerId} found with dimensions: ${container.clientWidth}x${container.clientHeight}`);
           
-          // Fix Leaflet's icon paths
-          if (typeof window !== 'undefined') {
-            delete (L.Icon.Default.prototype as any)._getIconUrl;
+          try {
+            // Fix Leaflet's icon paths
+            if (typeof window !== 'undefined') {
+              delete (L.Icon.Default.prototype as any)._getIconUrl;
+              
+              L.Icon.Default.mergeOptions({
+                iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+                iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+                shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+              });
+            }
             
-            L.Icon.Default.mergeOptions({
-              iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-              iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-              shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+            // Create the map
+            const map = L.map(containerId, {
+              center,
+              zoom,
+              zoomControl: true,
+              attributionControl: true,
             });
             
-            console.log("DEBUG: Leaflet icon paths fixed");
-          }
-          
-          // Create the map instance
-          console.log(`DEBUG: Creating map with center: ${center} and zoom: ${zoom}`);
-          const map = L.map(containerId, {
-            center,
-            zoom,
-            zoomControl: true,
-            attributionControl: true,
-            doubleClickZoom: true,
-            scrollWheelZoom: true,
-            dragging: true,
-          });
-          
-          // Add the tile layer
-          console.log("DEBUG: Adding tile layer");
-          L.tileLayer(
-            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            {
-              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            }
-          ).addTo(map);
-          
-          // Store the map instance
-          globalMapInstance = map;
-          
-          // Resolve the promise
-          resolve(map);
-          
-          // Reset the initialization flag
-          isMapInitializing = false;
-          mapInitializationPromise = null;
-          
-          console.log("DEBUG: Map instance created successfully");
-          
-          // Force a resize after a short delay
-          setTimeout(() => {
-            map.invalidateSize();
-            console.log("DEBUG: Map size invalidated");
+            // Add the tile layer
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+              maxZoom: 19,
+            }).addTo(map);
             
-            // Check container dimensions
-            const container = document.getElementById(containerId);
-            if (container) {
-              console.log(`DEBUG: Container dimensions after invalidateSize: ${container.clientWidth}x${container.clientHeight}`);
-            }
-          }, 500);
-        } catch (error) {
-          console.error("DEBUG: Error creating map instance", error);
-          reject(error);
-          
-          // Reset the initialization flag
-          isMapInitializing = false;
-          mapInitializationPromise = null;
+            // Store the map instance globally
+            globalMapInstance = map;
+            isMapInitializing = false;
+            
+            console.log("DEBUG: Map initialization complete");
+            resolve(map);
+          } catch (error) {
+            console.error("DEBUG: Error creating map:", error);
+            isMapInitializing = false;
+            mapInitializationPromise = null;
+            reject(error);
+          }
+        } else {
+          attempts++;
+          if (attempts < maxAttempts) {
+            console.log(`DEBUG: Container ${containerId} not found or has zero dimensions, retrying (${attempts}/${maxAttempts})...`);
+            setTimeout(checkForContainer, checkInterval);
+          } else {
+            console.error(`DEBUG: Container ${containerId} not found after ${maxAttempts} attempts`);
+            isMapInitializing = false;
+            mapInitializationPromise = null;
+            reject(new Error(`Container ${containerId} not found after ${maxAttempts} attempts`));
+          }
         }
-      }, 100);
-    } catch (error) {
-      console.error("DEBUG: Error in map initialization promise", error);
-      reject(error);
+      };
       
-      // Reset the initialization flag
+      // Start checking for the container
+      checkForContainer();
+    } catch (error) {
+      console.error("DEBUG: Error in map initialization:", error);
       isMapInitializing = false;
       mapInitializationPromise = null;
+      reject(error);
     }
   });
   
@@ -1094,7 +1079,7 @@ export default function MapView() {
     }
   }, [mapType]);
 
-  // Modify the effect to only update markers when sport changes, not reload the entire map
+  // Modify the effect that updates markers when sport changes
   useEffect(() => {
     // Don't force map rerender, just update the markers
     console.log(`Sport changed to ${selectedSport.name}, updating markers`);
@@ -1108,8 +1093,64 @@ export default function MapView() {
         location.sports.some(sport => sport.sportId === selectedSport.id)
       );
       setFilteredLocations(filtered);
+      
+      // Update markers if map is initialized
+      if (mapRef.current) {
+        try {
+          const map = mapRef.current;
+          
+          // Clear existing markers
+          map.eachLayer((layer) => {
+            if (layer instanceof L.Marker) {
+              map.removeLayer(layer);
+            }
+          });
+          
+          // Add filtered location markers
+          filtered.forEach((location) => {
+            const marker = L.marker(
+              [location.lat, location.lng],
+              { icon: getSportIcon(location.sports.find(s => s.sportId === selectedSport.id)?.sportId || selectedSport.id) }
+            ).addTo(map);
+            
+            // Add popup with location details
+            marker.bindPopup(`
+              <div class="p-2">
+                <h3 class="font-semibold">${location.name}</h3>
+                <p class="text-sm">${location.address}</p>
+                <div class="mt-2 space-y-1">
+                  <p class="text-sm">
+                    ${location.venueType === 'indoor' ? '🏢 Indoor' : '�� Outdoor'} Facility
+                  </p>
+                  ${location.sports.filter(s => s.sportId === selectedSport.id).map(sport => `
+                    <div class="flex items-center gap-2">
+                      <p class="text-sm">
+                        ${sport.sportId.charAt(0).toUpperCase() + sport.sportId.slice(1)}: ${sport.courtCount} courts
+                      </p>
+                    </div>
+                  `).join('')}
+                  ${location.hasLights ? `
+                    <p class="text-sm flex items-center">
+                      <span class="mr-1">🌙</span> Available for night play
+                    </p>
+                  ` : ''}
+                  <p class="text-sm">
+                    Access: ${formatAccessType(location.accessType)}
+                    ${location.accessType === ACCESS_TYPES.PAID && location.hourlyRate ? 
+                      ` ($${location.hourlyRate}/hour)` : ''}
+                  </p>
+                </div>
+              </div>
+            `);
+          });
+          
+          console.log(`Updated ${filtered.length} markers for ${selectedSport.name}`);
+        } catch (error) {
+          console.error("Error updating markers:", error);
+        }
+      }
     }
-  }, [selectedSport.id, locations]);
+  }, [selectedSport.id, selectedSport.name, locations, formatAccessType, getSportIcon]);
 
   // Only render the map if the component is mounted and there's no error
   if (error) {

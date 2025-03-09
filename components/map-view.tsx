@@ -82,6 +82,7 @@ declare global {
     deleteLocation: (locationId: string) => void;
     updateMapType: (type: 'street' | 'satellite') => void;
     getCurrentLocation: () => void;
+    togglePinDropMode: (enable: boolean) => void;
   }
 }
 
@@ -782,6 +783,8 @@ export default function MapView() {
         // Set up click handler
         map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
           console.log("DEBUG: Map click event:", e);
+          console.log("DEBUG: isAddingLocation:", isAddingLocation);
+          
           if (isAddingLocation) {
             console.log("DEBUG: Adding location at:", e.latlng);
             
@@ -860,6 +863,17 @@ export default function MapView() {
               description: "Geolocation is not supported by your browser",
               variant: "destructive"
             });
+          }
+        };
+        
+        // Add method to toggle pin drop mode
+        window.togglePinDropMode = (enable: boolean) => {
+          console.log("DEBUG: Global togglePinDropMode called with:", enable);
+          setIsAddingLocation(enable);
+          
+          // Update cursor
+          if (mapRef.current) {
+            mapRef.current.getContainer().style.cursor = enable ? 'crosshair' : '';
           }
         };
         
@@ -1146,7 +1160,28 @@ export default function MapView() {
           variant={isAddingLocation ? "destructive" : "default"}
           size="sm"
           className={`flex items-center gap-2 ${!isAddingLocation ? "sport-accent-bg" : ""}`}
-          onClick={() => setIsAddingLocation(!isAddingLocation)}
+          onClick={() => {
+            console.log("DEBUG: Add location button clicked, current state:", isAddingLocation);
+            const newState = !isAddingLocation;
+            
+            // Use the global function to ensure state is updated correctly
+            if (typeof window.togglePinDropMode === 'function') {
+              window.togglePinDropMode(newState);
+            } else {
+              setIsAddingLocation(newState);
+              console.log("DEBUG: Setting isAddingLocation to:", newState);
+              
+              // If we're turning on adding mode, update the global state
+              if (newState && mapRef.current) {
+                console.log("DEBUG: Enabling pin drop mode");
+                // Add a visual indicator that the map is in pin drop mode
+                mapRef.current.getContainer().style.cursor = 'crosshair';
+              } else if (mapRef.current) {
+                // Reset cursor
+                mapRef.current.getContainer().style.cursor = '';
+              }
+            }
+          }}
           disabled={isDialogOpen}
         >
           {isAddingLocation ? (

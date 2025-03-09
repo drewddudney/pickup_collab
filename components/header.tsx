@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu"
 import { User, Settings, LogOut } from "lucide-react"
-import { useCallback, useState, useMemo } from "react"
+import { useCallback, useState, useMemo, useEffect } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/contexts/AuthContext"
 import { SportSelector } from "@/components/sport-selector"
@@ -17,9 +17,43 @@ import { NotificationsDropdown } from "@/components/notifications-dropdown"
 import { useAppContext } from "@/contexts/AppContext"
 
 export function Header() {
-  const { user, logout } = useAuth()
+  const { user, logout, refreshUser } = useAuth()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const { activeTab, setActiveTab } = useAppContext()
+  const [avatarKey, setAvatarKey] = useState(Date.now())
+
+  // Refresh user data periodically to ensure profile picture is up to date
+  useEffect(() => {
+    // Refresh user data when component mounts
+    if (refreshUser) {
+      refreshUser();
+    }
+
+    // Set up an interval to refresh user data every minute
+    const intervalId = setInterval(() => {
+      if (refreshUser) {
+        refreshUser();
+        // Update avatar key to force re-render
+        setAvatarKey(Date.now());
+      }
+    }, 60000); // 1 minute
+
+    // Also refresh when tab becomes active
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && refreshUser) {
+        refreshUser();
+        setAvatarKey(Date.now());
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Clean up interval and event listener
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshUser]);
 
   // Don't render if no user
   if (!user) return null;
@@ -83,8 +117,12 @@ export function Header() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={user.photoURL || ""} alt={user.displayName || "User"} />
+                <Avatar className="h-8 w-8" key={`avatar-${avatarKey}-${user.photoURL}`}>
+                  <AvatarImage 
+                    src={user.photoURL || ""} 
+                    alt={user.displayName || "User"} 
+                    referrerPolicy="no-referrer"
+                  />
                   <AvatarFallback>{getInitials()}</AvatarFallback>
                 </Avatar>
               </Button>

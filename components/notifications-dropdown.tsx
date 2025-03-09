@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Bell, Loader2 } from "lucide-react"
+import { Bell, Loader2, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -18,7 +18,7 @@ import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, setDoc, T
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Notification } from "@/lib/firebase"
-import { toast } from "@/components/ui/use-toast"
+import { toast, useToast } from "@/components/ui/use-toast"
 import Link from "next/link"
 import { ChevronRight } from "lucide-react"
 import { useAppContext } from "@/contexts/AppContext"
@@ -38,6 +38,8 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
   const [notifications, setNotifications] = useState<ExtendedNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
+  const [isClearingAll, setIsClearingAll] = useState(false)
+  const { toast } = useToast()
 
   // Function to show all notifications
   const showAllNotifications = () => {
@@ -324,6 +326,39 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
     }
   };
 
+  // Add a function to clear all notifications
+  const clearAllNotifications = async () => {
+    if (!user?.uid || notifications.length === 0) return
+    
+    setIsClearingAll(true)
+    try {
+      const batch = writeBatch(db)
+      
+      notifications.forEach(notification => {
+        const notificationRef = doc(db, "notifications", notification.id)
+        batch.delete(notificationRef)
+      })
+      
+      await batch.commit()
+      
+      setNotifications([])
+      setUnreadCount(0)
+      toast({
+        title: "Success",
+        description: "All notifications have been cleared.",
+      })
+    } catch (error) {
+      console.error("Error clearing notifications:", error)
+      toast({
+        title: "Error",
+        description: "Failed to clear notifications. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsClearingAll(false)
+    }
+  }
+
   // Fetch notifications on mount and when user changes
   useEffect(() => {
     if (user?.uid) {
@@ -339,21 +374,45 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+            <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
               {unreadCount}
             </span>
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[350px]">
-        <DropdownMenuLabel className="flex items-center justify-between">
-          <span>Notifications</span>
-          {unreadCount > 0 && (
-            <Badge variant="secondary" className="ml-2">
-              {unreadCount} new
-            </Badge>
-          )}
-        </DropdownMenuLabel>
+      <DropdownMenuContent align="end" className="w-80">
+        <div className="flex items-center justify-between p-4">
+          <div className="flex items-center">
+            <Bell className="h-5 w-5 mr-2" />
+            <span className="font-medium">
+              {unreadCount > 0 ? `${unreadCount} New` : 'Notifications'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={clearAllNotifications}
+              disabled={notifications.length === 0 || isClearingAll}
+              className="h-8 px-2 text-xs"
+            >
+              {isClearingAll ? (
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              ) : (
+                <Trash2 className="h-3 w-3 mr-1" />
+              )}
+              Clear All
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={showAllNotifications}
+              className="h-8 px-2 text-xs"
+            >
+              See All
+            </Button>
+          </div>
+        </div>
         <DropdownMenuSeparator />
         
         {isLoading ? (

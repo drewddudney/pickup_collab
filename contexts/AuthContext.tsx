@@ -30,6 +30,7 @@ interface AuthContextType {
   signUpWithEmail: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
   updateUserProfile: (options: ProfileUpdateOptions) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 interface UserProfile {
@@ -347,6 +348,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Add a function to refresh the user data
+  const refreshUser = async () => {
+    if (!auth.currentUser) return;
+    
+    try {
+      // Force a token refresh
+      await auth.currentUser.getIdToken(true);
+      
+      // Update the user state with the latest user data
+      setUser({ ...auth.currentUser });
+      
+      console.log("User data refreshed");
+    } catch (error) {
+      console.error("Error refreshing user data:", error);
+    }
+  };
+
   const value = {
     user,
     loading,
@@ -357,6 +375,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUpWithEmail,
     updateUserProfile,
     logout,
+    refreshUser,
   };
 
   // Show error message if auth initialization failed

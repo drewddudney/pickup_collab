@@ -1126,10 +1126,10 @@ export default function MapView() {
     }
   }, [mapType]);
 
-  // Add effect to reset map when sport changes
+  // Modify the effect to only update markers when sport changes, not reload the entire map
   useEffect(() => {
-    // Force map rerender when sport changes by updating the key
-    setMapKey(Date.now());
+    // Don't force map rerender, just update the markers
+    console.log(`Sport changed to ${selectedSport.name}, updating markers`);
     
     // Reset selected location when sport changes
     setNewLocation({ name: '', address: '', lat: 0, lng: 0, hasLights: false, accessType: 'public', venueType: 'outdoor', sports: [] });
@@ -1141,9 +1141,7 @@ export default function MapView() {
       );
       setFilteredLocations(filtered);
     }
-    
-    console.log(`Sport changed to ${selectedSport.name}, forcing map rerender with key: ${Date.now()}`);
-  }, [selectedSport.id]); // Only depend on the sport ID, not the entire locations array
+  }, [selectedSport.id, locations]);
 
   // Only render the map if the component is mounted and there's no error
   if (error) {

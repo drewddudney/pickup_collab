@@ -20,7 +20,7 @@ import { Loader2 } from "lucide-react"
 import { useSport } from "@/components/sport-context"
 import { SportSelector } from "@/components/sport-selector"
 import Link from "next/link"
-import { useAppContext } from "@/app/page"
+import { useAppContext } from "@/contexts/AppContext"
 
 interface User {
   id: string

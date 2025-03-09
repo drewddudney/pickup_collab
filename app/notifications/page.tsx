@@ -12,7 +12,7 @@ import { Bell, Check, X, ArrowLeft } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { Badge } from "@/components/ui/badge"
 import { Loader2 } from "lucide-react"
-import { useAppContext } from "@/app/page"
+import { useAppContext } from "@/contexts/AppContext"
 
 interface Notification {
   id: string

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { collection, getDocs, query, where, limit, orderBy } from 'firebase/firestore';
 import { 
   MapPin, 
@@ -16,12 +15,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
-import { Header } from '@/components/header';
 import { db } from '@/lib/firebase';
 import { useSport } from '@/components/sport-context';
 import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import { CourtImage } from '@/components/court-image';
+import { useAppContext } from '@/contexts/AppContext';
 
 // Define types for our data
 interface GameData {
@@ -125,9 +124,9 @@ const MOCK_TEAMMATES: TeammateData[] = [
 ];
 
 export default function HomePage() {
-  const router = useRouter();
   const { user } = useAuth();
   const { selectedSport } = useSport();
+  const { setActiveTab } = useAppContext();
   const [upcomingGames, setUpcomingGames] = useState<GameData[]>([]);
   const [nearbyLocations, setNearbyLocations] = useState<LocationData[]>([]);
   const [teammates, setTeammates] = useState<TeammateData[]>([]);
@@ -135,7 +134,6 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!user) {
-      router.push('/login');
       return;
     }
 
@@ -272,7 +270,20 @@ export default function HomePage() {
     };
 
     fetchData();
-  }, [user, router]);
+  }, [user, selectedSport]);
+
+  // Navigation functions
+  const navigateToMap = () => {
+    setActiveTab('map');
+  };
+
+  const navigateToSchedule = () => {
+    setActiveTab('schedule');
+  };
+
+  const navigateToTeammates = () => {
+    setActiveTab('teammates');
+  };
 
   if (!user) {
     return <div className="flex min-h-screen items-center justify-center">Loading...</div>;
@@ -292,220 +303,197 @@ export default function HomePage() {
 
   return (
     <>
-      <Header />
-      <main className="flex-1 overflow-hidden">
-        <Tabs defaultValue="home" className="h-full">
-          <div className="container py-10 pb-20">
-            <h1 className="text-3xl font-bold mb-6">Home</h1>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Find Courts Card */}
-              <Card className="overflow-hidden">
-                <CardHeader className="pb-2">
-                  <CardTitle>Find Courts</CardTitle>
-                  <CardDescription>
-                    Discover {selectedSport.name} courts near you
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <CourtImage 
-                    sportId={selectedSport.id}
-                    sportName={selectedSport.name}
-                    locations={nearbyLocations}
-                  />
-                </CardContent>
-                <CardFooter className="pt-2">
-                  <Button 
-                    className="w-full" 
-                    onClick={() => router.push('/map')}
-                  >
-                    <MapPin className="mr-2 h-4 w-4" />
-                    <span>Find Courts</span>
-                    <ArrowRight className="ml-auto h-4 w-4" />
-                  </Button>
-                </CardFooter>
-              </Card>
+      <main className="flex-1 overflow-auto pb-16">
+        <div className="container py-6">
+          <h1 className="text-3xl font-bold mb-6">Home</h1>
+          
+          <div className="grid gap-6">
+            {/* Find Courts Card */}
+            <Card className="overflow-hidden">
+              <CardHeader className="pb-2">
+                <CardTitle>Find Courts</CardTitle>
+                <CardDescription>
+                  Discover {selectedSport.name} courts near you
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <CourtImage 
+                  sportId={selectedSport.id}
+                  sportName={selectedSport.name}
+                  locations={nearbyLocations}
+                />
+              </CardContent>
+              <CardFooter className="pt-2">
+                <Button 
+                  className="w-full" 
+                  onClick={navigateToMap}
+                >
+                  <MapPin className="mr-2 h-4 w-4" />
+                  <span>Find Courts</span>
+                  <ArrowRight className="ml-auto h-4 w-4" />
+                </Button>
+              </CardFooter>
+            </Card>
 
-              {/* Upcoming Games Card */}
-              <Card className="overflow-hidden">
-                <CardHeader className="pb-2">
-                  <CardTitle>Upcoming Games</CardTitle>
-                  <CardDescription>
-                    View your scheduled {selectedSport.name} games
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="relative min-h-40 w-full">
-                    {upcomingGames.length > 0 ? (
-                      <div className="p-4">
-                        {upcomingGames.map((game) => (
-                          <div key={game.id} className="mb-3 last:mb-0 p-2 rounded-md bg-muted/50">
-                            <div className="flex justify-between items-center">
-                              <div className="font-medium">{game.title || 'Pickup Game'}</div>
-                              <Badge variant="outline">{game.status || 'Scheduled'}</Badge>
+            {/* Upcoming Games Card */}
+            <Card className="overflow-hidden">
+              <CardHeader className="pb-2">
+                <CardTitle>Upcoming Games</CardTitle>
+                <CardDescription>
+                  View your scheduled {selectedSport.name} games
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="relative min-h-40 w-full">
+                  {upcomingGames.length > 0 ? (
+                    <div className="p-4">
+                      {upcomingGames.map((game) => (
+                        <div key={game.id} className="mb-3 last:mb-0 p-2 rounded-md bg-muted/50">
+                          <div className="flex justify-between items-center">
+                            <div className="font-medium">{game.title || 'Pickup Game'}</div>
+                            <Badge variant="outline">{game.status || 'Scheduled'}</Badge>
+                          </div>
+                          <div className="text-sm text-muted-foreground mt-1 flex items-center">
+                            <Calendar className="h-3 w-3 mr-1" />
+                            {formatDate(game.date)}
+                          </div>
+                          <div className="text-sm text-muted-foreground mt-1 flex items-center">
+                            <MapPin className="h-3 w-3 mr-1" />
+                            {game.location?.name || 'TBD'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-40 p-4 text-center">
+                      <Calendar className="h-8 w-8 mb-2 text-muted-foreground" />
+                      <p className="text-muted-foreground">No upcoming games</p>
+                      <p className="text-xs text-muted-foreground">Schedule a game to see it here</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+              <CardFooter className="pt-2">
+                <Button 
+                  className="w-full" 
+                  onClick={navigateToSchedule}
+                >
+                  <Calendar className="mr-2 h-4 w-4" />
+                  <span>View Schedule</span>
+                  <ArrowRight className="ml-auto h-4 w-4" />
+                </Button>
+              </CardFooter>
+            </Card>
+
+            {/* Team Card */}
+            <Card className="overflow-hidden">
+              <CardHeader className="pb-2">
+                <CardTitle>Your Team</CardTitle>
+                <CardDescription>
+                  Manage your {selectedSport.name} teammates
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="relative min-h-40 w-full">
+                  {teammates.length > 0 ? (
+                    <div className="p-4">
+                      <div className="flex flex-wrap gap-2">
+                        {teammates.map((teammate) => (
+                          <div key={teammate.id} className="flex items-center p-2 rounded-md bg-muted/50">
+                            <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center mr-2">
+                              {teammate.profilePicture ? (
+                                <Image 
+                                  src={teammate.profilePicture} 
+                                  alt={teammate.firstName || 'User'} 
+                                  width={32} 
+                                  height={32} 
+                                  className="rounded-full"
+                                />
+                              ) : (
+                                <User className="h-4 w-4" />
+                              )}
                             </div>
-                            <div className="text-sm text-muted-foreground mt-1 flex items-center">
-                              <Calendar className="h-3 w-3 mr-1" />
-                              {formatDate(game.date)}
-                            </div>
-                            <div className="text-sm text-muted-foreground mt-1 flex items-center">
-                              <MapPin className="h-3 w-3 mr-1" />
-                              {game.location?.name || 'TBD'}
+                            <div>
+                              <div className="font-medium text-sm">
+                                {teammate.firstName} {teammate.lastName}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {teammate.athleticAttributes?.[selectedSport.id]?.skillLevel || 'Beginner'}
+                              </div>
                             </div>
                           </div>
                         ))}
                       </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-40 p-4 text-center">
+                      <Users className="h-8 w-8 mb-2 text-muted-foreground" />
+                      <p className="text-muted-foreground">No teammates yet</p>
+                      <p className="text-xs text-muted-foreground">Add teammates to see them here</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+              <CardFooter className="pt-2">
+                <Button 
+                  className="w-full" 
+                  onClick={navigateToTeammates}
+                >
+                  <Users className="mr-2 h-4 w-4" />
+                  <span>Manage Team</span>
+                  <ArrowRight className="ml-auto h-4 w-4" />
+                </Button>
+              </CardFooter>
+            </Card>
+
+            {/* Profile Card */}
+            <Card className="overflow-hidden">
+              <CardHeader className="pb-2">
+                <CardTitle>Your Profile</CardTitle>
+                <CardDescription>
+                  Update your {selectedSport.name} profile
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="p-4 flex items-center">
+                  <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center mr-4">
+                    {user.photoURL ? (
+                      <Image 
+                        src={user.photoURL} 
+                        alt="Profile" 
+                        width={64} 
+                        height={64} 
+                        className="rounded-full"
+                      />
                     ) : (
-                      <div className="flex flex-col items-center justify-center h-40 p-4 text-center">
-                        <Calendar className="h-8 w-8 mb-2 text-muted-foreground" />
-                        <p className="text-muted-foreground">No upcoming games</p>
-                        <p className="text-xs text-muted-foreground">Schedule a game to see it here</p>
-                      </div>
+                      <User className="h-8 w-8" />
                     )}
                   </div>
-                </CardContent>
-                <CardFooter className="pt-2">
-                  <Button 
-                    className="w-full" 
-                    onClick={() => router.push('/map?tab=schedule')}
-                  >
-                    <Calendar className="mr-2 h-4 w-4" />
-                    <span>View Schedule</span>
-                    <ArrowRight className="ml-auto h-4 w-4" />
-                  </Button>
-                </CardFooter>
-              </Card>
-
-              {/* Team Card */}
-              <Card className="overflow-hidden">
-                <CardHeader className="pb-2">
-                  <CardTitle>Your Team</CardTitle>
-                  <CardDescription>
-                    Manage your {selectedSport.name} teammates
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="relative min-h-40 w-full">
-                    {teammates.length > 0 ? (
-                      <div className="p-4">
-                        <div className="flex flex-wrap gap-2">
-                          {teammates.map((teammate) => (
-                            <div key={teammate.id} className="flex items-center p-2 rounded-md bg-muted/50">
-                              <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center mr-2">
-                                {teammate.profilePicture ? (
-                                  <Image 
-                                    src={teammate.profilePicture} 
-                                    alt={teammate.firstName || 'User'} 
-                                    width={32} 
-                                    height={32} 
-                                    className="rounded-full"
-                                  />
-                                ) : (
-                                  <User className="h-4 w-4" />
-                                )}
-                              </div>
-                              <div>
-                                <div className="font-medium text-sm">
-                                  {teammate.firstName} {teammate.lastName}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {teammate.athleticAttributes?.[selectedSport.id]?.skillLevel || 'Beginner'}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center h-40 p-4 text-center">
-                        <Users className="h-8 w-8 mb-2 text-muted-foreground" />
-                        <p className="text-muted-foreground">No teammates yet</p>
-                        <p className="text-xs text-muted-foreground">Add teammates to see them here</p>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-                <CardFooter className="pt-2">
-                  <Button 
-                    className="w-full" 
-                    onClick={() => router.push('/map?tab=teammates')}
-                  >
-                    <Users className="mr-2 h-4 w-4" />
-                    <span>Manage Team</span>
-                    <ArrowRight className="ml-auto h-4 w-4" />
-                  </Button>
-                </CardFooter>
-              </Card>
-
-              {/* Profile Card */}
-              <Card className="overflow-hidden">
-                <CardHeader className="pb-2">
-                  <CardTitle>Your Profile</CardTitle>
-                  <CardDescription>
-                    Update your {selectedSport.name} profile
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="p-4 flex items-center">
-                    <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center mr-4">
-                      {user.photoURL ? (
-                        <Image 
-                          src={user.photoURL} 
-                          alt="Profile" 
-                          width={64} 
-                          height={64} 
-                          className="rounded-full"
-                        />
-                      ) : (
-                        <User className="h-8 w-8" />
-                      )}
+                  <div>
+                    <div className="font-medium">{user.displayName || user.email}</div>
+                    <div className="text-sm text-muted-foreground mt-1">
+                      {selectedSport.name} Player
                     </div>
-                    <div>
-                      <div className="font-medium">{user.displayName || user.email}</div>
-                      <div className="text-sm text-muted-foreground mt-1">
-                        {selectedSport.name} Player
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        <Badge variant="outline">Profile</Badge>
-                        <Badge variant="outline">Settings</Badge>
-                      </div>
+                    <div className="flex gap-2 mt-2">
+                      <Badge variant="outline">Profile</Badge>
+                      <Badge variant="outline">Settings</Badge>
                     </div>
                   </div>
-                </CardContent>
-                <CardFooter className="pt-2">
-                  <Button 
-                    className="w-full" 
-                    onClick={() => router.push('/profile')}
-                  >
-                    <User className="mr-2 h-4 w-4" />
-                    <span>Update Profile</span>
-                    <ArrowRight className="ml-auto h-4 w-4" />
-                  </Button>
-                </CardFooter>
-              </Card>
-            </div>
+                </div>
+              </CardContent>
+              <CardFooter className="pt-2">
+                <Button 
+                  className="w-full" 
+                  onClick={() => navigateToTeammates()}
+                >
+                  <User className="mr-2 h-4 w-4" />
+                  <span>Update Profile</span>
+                  <ArrowRight className="ml-auto h-4 w-4" />
+                </Button>
+              </CardFooter>
+            </Card>
           </div>
-          
-          {/* Bottom Navigation */}
-          <TabsList className="fixed bottom-0 left-0 right-0 h-16 grid grid-cols-4 gap-4 bg-background border-t px-4 py-2 z-50">
-            <TabsTrigger value="home" className="flex flex-col items-center justify-center data-[state=active]:bg-accent/50">
-              <Home className="h-5 w-5" />
-              <span className="text-xs">Home</span>
-            </TabsTrigger>
-            <TabsTrigger value="map" className="flex flex-col items-center justify-center data-[state=active]:bg-accent/50" onClick={() => router.push('/map')}>
-              <MapIcon className="h-5 w-5" />
-              <span className="text-xs">Map</span>
-            </TabsTrigger>
-            <TabsTrigger value="schedule" className="flex flex-col items-center justify-center data-[state=active]:bg-accent/50" onClick={() => router.push('/map?tab=schedule')}>
-              <Calendar className="h-5 w-5" />
-              <span className="text-xs">Schedule</span>
-            </TabsTrigger>
-            <TabsTrigger value="teammates" className="flex flex-col items-center justify-center data-[state=active]:bg-accent/50" onClick={() => router.push('/map?tab=teammates')}>
-              <Users className="h-5 w-5" />
-              <span className="text-xs">Team</span>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        </div>
       </main>
     </>
   );

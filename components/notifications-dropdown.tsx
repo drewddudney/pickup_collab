@@ -21,7 +21,7 @@ import { Notification } from "@/lib/firebase"
 import { toast } from "@/components/ui/use-toast"
 import Link from "next/link"
 import { ChevronRight } from "lucide-react"
-import { useAppContext } from "@/app/page"
+import { useAppContext } from "@/contexts/AppContext"
 
 interface NotificationsDropdownProps {
   onShowAll?: () => void;

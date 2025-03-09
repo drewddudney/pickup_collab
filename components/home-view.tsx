@@ -2,7 +2,6 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MapPin, Calendar, Users, UserPlus } from "lucide-react";
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSport } from "@/components/sport-context";
@@ -11,6 +10,7 @@ import { db } from "@/lib/firebase";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAppContext } from "@/contexts/AppContext";
 
 interface User {
   id: string;
@@ -31,6 +31,8 @@ interface Team {
 }
 
 function TeamCard({ team, members }: { team: Team; members: User[] }) {
+  const { setActiveTab } = useAppContext();
+  
   // Get initials for avatar fallback
   const getInitials = (name: string) => {
     return name
@@ -40,9 +42,13 @@ function TeamCard({ team, members }: { team: Team; members: User[] }) {
       .toUpperCase();
   };
 
+  const navigateToTeammates = () => {
+    setActiveTab('teammates');
+  };
+
   return (
-    <Link href="/team" className="block">
-      <div className="flex items-center p-4 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
+    <div className="block" onClick={navigateToTeammates}>
+      <div className="flex items-center p-4 bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer">
         <div className="flex-1">
           <h3 className="font-medium">{team.name}</h3>
           <p className="text-sm text-muted-foreground">{members.length} members</p>
@@ -61,16 +67,21 @@ function TeamCard({ team, members }: { team: Team; members: User[] }) {
           )}
         </div>
       </div>
-    </Link>
+    </div>
   );
 }
 
-function YourTeamsWidget() {
+export default function HomeView() {
   const { user } = useAuth();
   const { selectedSport } = useSport();
+  const { setActiveTab } = useAppContext();
   const [teams, setTeams] = useState<Team[]>([]);
-  const [teamMembers, setTeamMembers] = useState<{ [teamId: string]: User[] }>({});
+  const [teamMembers, setTeamMembers] = useState<Record<string, User[]>>({});
   const [loading, setLoading] = useState(true);
+
+  const navigateToTeammates = () => {
+    setActiveTab('teammates');
+  };
 
   useEffect(() => {
     const fetchTeams = async () => {
@@ -93,7 +104,7 @@ function YourTeamsWidget() {
         setTeams(teamsData);
 
         // Fetch members for each team
-        const membersData: { [teamId: string]: User[] } = {};
+        const membersData: Record<string, User[]> = {};
         await Promise.all(
           teamsData.map(async (team) => {
             const members = await Promise.all(
@@ -116,53 +127,6 @@ function YourTeamsWidget() {
     fetchTeams();
   }, [user, selectedSport.id]);
 
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle>Your Teams</CardTitle>
-          <CardDescription>Teams you're a member of</CardDescription>
-        </div>
-        <Link href="/team">
-          <Button variant="outline" size="sm">
-            <UserPlus className="h-4 w-4 mr-2" />
-            Manage Teams
-          </Button>
-        </Link>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="space-y-4">
-            <Skeleton className="h-14 w-full" />
-            <Skeleton className="h-14 w-full" />
-          </div>
-        ) : teams.length === 0 ? (
-          <div className="text-center py-6">
-            <p className="text-muted-foreground mb-4">You're not a member of any teams yet</p>
-            <Link href="/team">
-              <Button>
-                <UserPlus className="h-4 w-4 mr-2" />
-                Create or Join a Team
-              </Button>
-            </Link>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {teams.map((team) => (
-              <TeamCard 
-                key={team.id} 
-                team={team} 
-                members={teamMembers[team.id] || []} 
-              />
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-export function HomeView() {
   return (
     <div className="container mx-auto p-6 pb-20 space-y-8">
       <div className="grid gap-6 md:grid-cols-3">
@@ -217,7 +181,44 @@ export function HomeView() {
       </div>
 
       {/* Your Teams Widget */}
-      <YourTeamsWidget />
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Your Teams</CardTitle>
+            <CardDescription>Teams you're a member of</CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={navigateToTeammates}>
+            <UserPlus className="h-4 w-4 mr-2" />
+            Manage Teams
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-14 w-full" />
+              <Skeleton className="h-14 w-full" />
+            </div>
+          ) : teams.length === 0 ? (
+            <div className="text-center py-6">
+              <p className="text-muted-foreground mb-4">You're not a member of any teams yet</p>
+              <Button onClick={navigateToTeammates}>
+                <UserPlus className="h-4 w-4 mr-2" />
+                Create or Join a Team
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {teams.map((team) => (
+                <TeamCard 
+                  key={team.id} 
+                  team={team} 
+                  members={teamMembers[team.id] || []}
+                />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Recent Activity Section */}
       <Card>

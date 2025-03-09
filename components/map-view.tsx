@@ -373,11 +373,55 @@ export default function MapView() {
   // Add refs to store previous values to prevent unnecessary re-renders
   const prevSportRef = useRef<string | null>(null);
   const markersRef = useRef<any[]>([]);
+  
+  // Create a ref for the map container
+  const mapContainerRef = useRef<HTMLDivElement>(null);
 
   const { isLoaded } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
     libraries,
   });
+
+  // Function to format access type for display
+  const formatAccessType = (type: AccessType | undefined) => {
+    switch (type) {
+      case ACCESS_TYPES.PUBLIC:
+        return 'Public';
+      case ACCESS_TYPES.MEMBERSHIP:
+        return 'Membership Required';
+      case ACCESS_TYPES.PAID:
+        return 'Pay to Play';
+      case ACCESS_TYPES.PRIVATE:
+        return 'Private';
+      default:
+        return 'Unknown';
+    }
+  };
+
+  // Create sport-specific icons
+  const getSportIcon = useCallback((sportId: string) => {
+    if (!window.L) {
+      console.error("DEBUG: window.L not available for sport icon");
+      return null;
+    }
+    
+    const SportIcon = SportMarkers[sportId as keyof typeof SportMarkers] || SportMarkers.basketball;
+    
+    // Convert the React component to an SVG string
+    const svgString = ReactDOMServer.renderToString(<SportIcon className="w-8 h-8 sport-accent" />);
+    
+    // Create a container for the SVG
+    const iconHtml = document.createElement('div');
+    iconHtml.className = 'sport-marker-icon';
+    iconHtml.innerHTML = svgString;
+    
+    return window.L.divIcon({
+      html: iconHtml.outerHTML,
+      className: '',
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
+    });
+  }, []);
 
   // Handle auth state changes
   useEffect(() => {
@@ -626,237 +670,100 @@ export default function MapView() {
     }));
   };
 
-  // Add a useEffect to handle map visibility when the tab changes
+  // SIMPLIFIED MAP INITIALIZATION
   useEffect(() => {
-    console.log("DEBUG: Checking if map tab is active");
+    console.log("DEBUG: Starting simplified map initialization");
     
-    // Function to check if the current tab is the map tab
-    const checkIfMapTabActive = () => {
-      const url = new URL(window.location.href);
-      const appTab = url.searchParams.get('appTab');
-      console.log("DEBUG: Current appTab:", appTab);
-      
-      // If we're on the map tab and the map is initialized but not visible
-      if (appTab === 'map' && mapRef.current) {
-        console.log("DEBUG: Map tab is active, invalidating map size");
-        setTimeout(() => {
-          if (mapRef.current) {
-            mapRef.current.invalidateSize();
-            console.log("DEBUG: Map size invalidated due to tab change");
-          }
-        }, 100);
-      }
-    };
-    
-    // Check immediately
-    checkIfMapTabActive();
-    
-    // Also check when URL changes
-    const handleUrlChange = () => {
-      checkIfMapTabActive();
-    };
-    
-    // Listen for URL changes
-    window.addEventListener('popstate', handleUrlChange);
-    
-    return () => {
-      window.removeEventListener('popstate', handleUrlChange);
-    };
-  }, []);
-
-  // Handle map initialization - SIMPLIFIED to prevent unmounting issues
-  useEffect(() => {
-    console.log(`DEBUG: MapView initialization effect running`);
-    
-    // Only run once
-    if (isMountedRef.current) {
-      console.log("DEBUG: Map initialization already attempted, skipping");
+    // Only initialize once
+    if (isMountedRef.current || !mapContainerRef.current) {
+      console.log("DEBUG: Map already initialized or container not ready");
       return;
     }
     
     // Mark as mounted
     isMountedRef.current = true;
-    console.log("DEBUG: Setting isMountedRef.current to true");
-    
-    // Function to initialize the map
-    const initializeMap = () => {
-      console.log("DEBUG: initializeMap function called");
-      
-      // Make sure the container exists
-      const container = document.getElementById(MAP_CONTAINER_ID);
-      if (!container) {
-        console.error("DEBUG: Map container not found");
-        setError("Map container not found. Please refresh the page.");
-        return;
-      }
-      
-      console.log(`DEBUG: Container found with dimensions: ${container.clientWidth}x${container.clientHeight}`);
-      
-      // Make sure Leaflet is loaded
-      if (!window.L) {
-        console.error("DEBUG: Leaflet not loaded");
-        setError("Leaflet library not loaded. Please refresh the page.");
-        return;
-      }
-      
-      try {
-        console.log("DEBUG: Creating map instance");
-        
-        // Fix Leaflet's icon paths
-        delete (window.L.Icon.Default.prototype as any)._getIconUrl;
-        window.L.Icon.Default.mergeOptions({
-          iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-          iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-          shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-        });
-        
-        // Create the map with explicit options
-        const map = window.L.map(MAP_CONTAINER_ID, {
-          center,
-          zoom: 13,
-          zoomControl: true,
-          attributionControl: true,
-          preferCanvas: true,
-          fadeAnimation: false, // Disable animations for better performance
-          markerZoomAnimation: false, // Disable animations for better performance
-          tap: false, // Disable tap handler for better performance
-        });
-        
-        // Try multiple tile providers in case one is blocked
-        const tileProviders = [
-          {
-            url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            maxZoom: 19
-          },
-          {
-            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012',
-            maxZoom: 19
-          },
-          {
-            url: 'https://tile.openstreetmap.de/{z}/{x}/{y}.png',
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            maxZoom: 18
-          }
-        ];
-        
-        // Try each tile provider
-        let tileLayer = null;
-        for (const provider of tileProviders) {
-          try {
-            console.log(`DEBUG: Trying tile provider: ${provider.url}`);
-            tileLayer = window.L.tileLayer(provider.url, {
-              attribution: provider.attribution,
-              maxZoom: provider.maxZoom
-            }).addTo(map);
-            console.log("DEBUG: Tile layer added successfully");
-            break; // Stop if successful
-          } catch (error) {
-            console.error(`DEBUG: Error adding tile layer from ${provider.url}:`, error);
-          }
-        }
-        
-        if (!tileLayer) {
-          console.error("DEBUG: All tile providers failed");
-          setError("Failed to load map tiles. Please check your internet connection.");
-          return;
-        }
-        
-        // Store the map instance
-        mapRef.current = map;
-        globalMapInstance = map;
-        
-        // Set up map click handler
-        map.on('click', handleMapClick);
-        
-        // Add a global function to handle location deletion
-        (window as any).deleteLocation = (locationId: string) => {
-          handleDeleteLocation(locationId);
-        };
-        
-        // Mark as initialized
-        setIsMapInitialized(true);
-        console.log("DEBUG: Map initialized successfully");
-        
-        // Force a resize after a short delay
-        setTimeout(() => {
-          map.invalidateSize({ animate: false, pan: false });
-          console.log("DEBUG: Map size invalidated");
-          
-          // Check if we need to update the map view based on the URL
-          const url = new URL(window.location.href);
-          const appTab = url.searchParams.get('appTab');
-          if (appTab === 'map') {
-            console.log("DEBUG: Map tab is active, forcing another invalidateSize");
-            setTimeout(() => {
-              map.invalidateSize({ animate: false, pan: false });
-              console.log("DEBUG: Second map size invalidation");
-              
-              // Force a third invalidation after a longer delay
-              setTimeout(() => {
-                map.invalidateSize({ animate: false, pan: false });
-                console.log("DEBUG: Third map size invalidation");
-                
-                // Try to force a redraw of the map
-                const container = document.getElementById(MAP_CONTAINER_ID);
-                if (container) {
-                  // Temporarily hide and show the container to force a redraw
-                  container.style.display = 'none';
-                  setTimeout(() => {
-                    container.style.display = 'block';
-                    map.invalidateSize({ animate: false, pan: false });
-                    console.log("DEBUG: Fourth map size invalidation after container redraw");
-                  }, 50);
-                }
-              }, 500);
-            }, 300);
-          }
-        }, 300);
-      } catch (error) {
-        console.error("DEBUG: Error initializing map:", error);
-        setError(`Error initializing map: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
-    };
     
     // Load Leaflet CSS
     loadLeafletCss();
     
-    // Load Leaflet JS and then initialize the map
-    loadLeafletJs()
-      .then(() => {
-        console.log("DEBUG: Leaflet JS loaded, initializing map");
-        // Wait a bit for the DOM to be ready
-        setTimeout(initializeMap, 500);
-      })
-      .catch((error) => {
-        console.error("DEBUG: Error loading Leaflet JS:", error);
-        setError(`Error loading Leaflet: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      });
-    
-    // Cleanup function
-    return () => {
-      console.log("DEBUG: Map initialization effect cleanup");
-      
-      // Remove the click handler
-      if (mapRef.current) {
-        mapRef.current.off('click', handleMapClick);
+    // Function to initialize map
+    const initMap = async () => {
+      try {
+        // Load Leaflet JS if needed
+        if (!window.L) {
+          console.log("DEBUG: Loading Leaflet JS");
+          await loadLeafletJs();
+        }
+        
+        console.log("DEBUG: Creating map with container:", mapContainerRef.current);
+        
+        // Create map
+        const map = window.L.map(mapContainerRef.current, {
+          center: center,
+          zoom: 13,
+          preferCanvas: true,
+          fadeAnimation: false,
+          markerZoomAnimation: false
+        });
+        
+        // Add tile layer
+        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          maxZoom: 19
+        }).addTo(map);
+        
+        // Store map reference
+        mapRef.current = map;
+        globalMapInstance = map;
+        
+        // Set up click handler
+        map.on('click', handleMapClick);
+        
+        // Add global delete function
+        (window as any).deleteLocation = handleDeleteLocation;
+        
+        // Mark as initialized
+        setIsMapInitialized(true);
+        console.log("DEBUG: Map successfully initialized");
+        
+        // Force resize
+        setTimeout(() => {
+          map.invalidateSize();
+          console.log("DEBUG: Map size invalidated");
+        }, 300);
+      } catch (error) {
+        console.error("DEBUG: Error initializing map:", error);
+        setError(`Map initialization error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
-      
-      // Remove the global function
-      delete (window as any).deleteLocation;
     };
-  }, []); // Empty dependency array - only run once
+    
+    // Initialize with delay to ensure DOM is ready
+    const timeoutId = setTimeout(initMap, 500);
+    
+    // Cleanup
+    return () => {
+      clearTimeout(timeoutId);
+      if (mapRef.current) {
+        console.log("DEBUG: Cleaning up map");
+        mapRef.current.off('click', handleMapClick);
+        delete (window as any).deleteLocation;
+      }
+    };
+  }, [center, handleMapClick, handleDeleteLocation]);
 
-  // SEPARATE useEffect for updating markers when locations or sport changes
+  // Update markers when filtered locations change
   useEffect(() => {
-    if (!mapRef.current || !isMapInitialized) return;
+    if (!mapRef.current || !isMapInitialized) {
+      console.log("DEBUG: Map not ready for markers");
+      return;
+    }
     
     const map = mapRef.current;
     const currentSportId = selectedSport?.id || null;
     
     // Only update markers if the sport has changed or locations have changed
     if (prevSportRef.current === currentSportId && markersRef.current.length === filteredLocations.length) {
+      console.log("DEBUG: No need to update markers");
       return;
     }
     
@@ -924,135 +831,7 @@ export default function MapView() {
       markersRef.current.push(marker);
     });
     
-  }, [filteredLocations, selectedSport, isMapInitialized, user]);
-
-  // SEPARATE useEffect for handling preview marker for new location
-  useEffect(() => {
-    if (!mapRef.current || !isMapInitialized || !isDialogOpen || !newLocation.lat || !newLocation.lng) return;
-    
-    const map = mapRef.current;
-    
-    if (!window.L) {
-      console.error("DEBUG: window.L not available for preview marker");
-      return;
-    }
-    
-    // Create a new marker for the preview
-    const marker = window.L.marker(
-      [newLocation.lat, newLocation.lng],
-      { 
-        icon: getSportIcon(selectedSport?.id || 'basketball'),
-        draggable: true
-      }
-    ).addTo(map);
-    
-    // Add drag events
-    marker.on('dragstart', () => setIsDraggingMarker(true));
-    marker.on('dragend', (e: any) => {
-      setIsDraggingMarker(false);
-      handleMarkerDragEnd(e);
-    });
-    
-    // Add popup
-    marker.bindPopup(`
-      <div class="p-2">
-        <h3 class="font-semibold">${newLocation.name || 'New Location'}</h3>
-        <p class="text-sm">${newLocation.address || 'Adjusting location...'}</p>
-        ${isDraggingMarker ? `
-          <p class="text-xs text-blue-600 mt-1">Release to set new position</p>
-        ` : `
-          <p class="text-xs text-muted-foreground mt-1">Drag marker to adjust position</p>
-        `}
-      </div>
-    `);
-    
-    return () => {
-      // Clean up the marker when the dialog closes
-      map.removeLayer(marker);
-    };
-  }, [isDialogOpen, newLocation.lat, newLocation.lng, newLocation.name, newLocation.address, selectedSport, isDraggingMarker, handleMarkerDragEnd, isMapInitialized]);
-
-  // SEPARATE useEffect for handling user location marker
-  useEffect(() => {
-    if (!mapRef.current || !isMapInitialized || !userLocation) return;
-    
-    const map = mapRef.current;
-    
-    if (!window.L) {
-      console.error("DEBUG: window.L not available for user location marker");
-      return;
-    }
-    
-    // Create a new marker for the user location
-    const marker = window.L.marker(
-      userLocation,
-      {
-        icon: window.L.divIcon({
-          className: 'user-location-marker',
-          html: '<div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white"></div>',
-          iconSize: [16, 16],
-          iconAnchor: [8, 8],
-        })
-      }
-    ).addTo(map);
-    
-    marker.bindPopup('Your Location');
-    
-    return () => {
-      // Clean up the marker when the user location changes
-      map.removeLayer(marker);
-    };
-  }, [userLocation, isMapInitialized]);
-
-  // SEPARATE useEffect for handling map type changes
-  useEffect(() => {
-    if (!mapRef.current || !isMapInitialized) return;
-    
-    const map = mapRef.current;
-    const currentTileLayer = (map as any).currentTileLayer;
-    
-    if (currentTileLayer) {
-      map.removeLayer(currentTileLayer);
-    }
-    
-    if (!window.L) {
-      console.error("DEBUG: window.L not available for tile layer");
-      return;
-    }
-    
-    const newTileLayer = window.L.tileLayer(getTileLayerUrl(mapType), {
-      maxZoom: 19,
-      attribution: getTileLayerAttribution()
-    }).addTo(map);
-    
-    (map as any).currentTileLayer = newTileLayer;
-    
-  }, [mapType, isMapInitialized]);
-
-  // Create sport-specific icons
-  const getSportIcon = useCallback((sportId: string) => {
-    if (!window.L) {
-      console.error("DEBUG: window.L not available for sport icon");
-      return null;
-    }
-    
-    const SportIcon = SportMarkers[sportId as keyof typeof SportMarkers] || SportMarkers.basketball;
-    
-    // Convert the React component to an SVG string
-    const svgString = ReactDOMServer.renderToString(<SportIcon className="w-8 h-8 sport-accent" />);
-    
-    // Create a container for the SVG
-    const iconHtml = document.createElement('div');
-    iconHtml.className = 'sport-marker-icon';
-    iconHtml.innerHTML = svgString;
-    
-    return window.L.divIcon({
-      html: iconHtml.outerHTML,
-      className: '',
-      iconSize: [32, 32],
-      iconAnchor: [16, 32],
-    });
-  }, []);
+  }, [filteredLocations, selectedSport, isMapInitialized, user, formatAccessType, getSportIcon]);
 
   const hasValidLocation = (loc: Partial<ExtendedLocation>) => {
     return loc.address && typeof loc.lat === 'number' && typeof loc.lng === 'number';
@@ -1061,11 +840,6 @@ export default function MapView() {
   const getStreetViewUrl = (loc: Partial<ExtendedLocation>) => {
     if (!loc.lat || !loc.lng) return null;
     return `https://maps.googleapis.com/maps/api/streetview?size=600x300&location=${loc.lat!},${loc.lng!}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}`;
-  };
-
-  const formatAccessType = (type: AccessType | undefined) => {
-    if (!type) return 'Public';
-    return type.charAt(0).toUpperCase() + type.slice(1);
   };
 
   // Update the handleGetCurrentLocation function to remove address autofill
@@ -1095,21 +869,6 @@ export default function MapView() {
       }
     );
   }, [toast]);
-
-  // Function to get the tile layer URL based on the map type
-  const getTileLayerUrl = (type: 'street' | 'satellite') => {
-    if (type === 'satellite') {
-      return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-    }
-    return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-  };
-
-  // Function to get the tile layer attribution
-  const getTileLayerAttribution = () => {
-    return mapType === 'satellite' 
-      ? 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-      : '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-  };
 
   // Only render the map if the component is mounted and there's no error
   if (error) {
@@ -1146,10 +905,9 @@ export default function MapView() {
     );
   }
 
-  if (!isMapInitialized) {
-    console.log("DEBUG: Rendering loading state, isMapInitialized:", isMapInitialized);
+  if (loading && !isMapInitialized) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-muted/20 map-container-parent">
+      <div className="h-full w-full flex items-center justify-center bg-muted/20">
         <div className="flex flex-col items-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
           <p className="mt-4 text-sm text-muted-foreground">Initializing map...</p>
@@ -1159,54 +917,19 @@ export default function MapView() {
               <p className="text-sm mt-1">{error}</p>
               <button 
                 className="mt-3 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-800 rounded-md text-sm"
-                onClick={() => {
-                  // Reset initialization state
-                  isMountedRef.current = false;
-                  isMapInitializing = false;
-                  mapInitializationPromise = null;
-                  mapInitializationAttempts = 0;
-                  setError(null);
-                  
-                  // Force cleanup of any existing map
-                  cleanupExistingMap();
-                  
-                  // Force reload the page
-                  window.location.reload();
-                }}
+                onClick={() => window.location.reload()}
               >
                 Reload Page
               </button>
             </div>
           )}
         </div>
-        
-        {/* Create an empty container for the map - make it visible but positioned behind the loading indicator */}
-        <div 
-          id={MAP_CONTAINER_ID} 
-          style={{ 
-            position: 'absolute', 
-            visibility: 'visible', // Make it visible so it has dimensions
-            opacity: '0.01', // Nearly invisible but still has dimensions
-            height: "100%", 
-            width: "100%",
-            minHeight: "500px", // Ensure it has dimensions
-            zIndex: 0, // Behind the loading indicator
-            display: 'block' // Ensure it's displayed
-          }}
-        ></div>
       </div>
     );
   }
 
-  if (loading) {
-    return <div className="flex items-center justify-center h-[80vh]">
-      <Loader2 className="h-8 w-8 animate-spin mr-2" />
-      <p>Loading...</p>
-    </div>;
-  }
-
   return (
-    <div className="relative h-full map-container-parent">
+    <div className="relative h-full">
       {/* Map Controls - positioned above the map but below dialogs */}
       <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
         <Button
@@ -1270,18 +993,16 @@ export default function MapView() {
         </div>
       )}
       
-      {/* Map Container - make sure it's visible and has proper dimensions */}
+      {/* Map Container - using ref instead of ID */}
       <div 
-        id={MAP_CONTAINER_ID} 
+        ref={mapContainerRef}
         className="w-full h-full"
         style={{ 
           height: 'calc(100vh - 8rem)', 
           minHeight: '500px',
           position: 'relative',
           zIndex: 1,
-          border: '1px solid #ccc',
-          visibility: 'visible',
-          display: 'block'
+          border: '1px solid #ccc'
         }}
       ></div>
       

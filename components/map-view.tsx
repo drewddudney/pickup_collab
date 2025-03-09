@@ -73,7 +73,7 @@ let mapInitializationAttempts = 0;
 const MAX_INITIALIZATION_ATTEMPTS = 3;
 
 // Define a constant map container ID outside the component
-const MAP_CONTAINER_ID = "map-container";
+const MAP_CONTAINER_ID = "map-container-direct";
 
 // Add a type declaration for the global L object
 declare global {
@@ -374,8 +374,8 @@ export default function MapView() {
   const prevSportRef = useRef<string | null>(null);
   const markersRef = useRef<any[]>([]);
   
-  // Create a ref for the map container
-  const mapContainerRef = useRef<HTMLDivElement>(null);
+  // Define a constant map container ID
+  const MAP_CONTAINER_ID = "map-container-direct";
 
   const { isLoaded } = useLoadScript({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
@@ -670,13 +670,13 @@ export default function MapView() {
     }));
   };
 
-  // SIMPLIFIED MAP INITIALIZATION
+  // DIRECT DOM APPROACH FOR MAP INITIALIZATION
   useEffect(() => {
-    console.log("DEBUG: Starting simplified map initialization");
+    console.log("DEBUG: Starting direct DOM map initialization");
     
     // Only initialize once
-    if (isMountedRef.current || !mapContainerRef.current) {
-      console.log("DEBUG: Map already initialized or container not ready");
+    if (isMountedRef.current) {
+      console.log("DEBUG: Map already initialized, skipping");
       return;
     }
     
@@ -686,19 +686,55 @@ export default function MapView() {
     // Load Leaflet CSS
     loadLeafletCss();
     
+    // Function to create the map container if it doesn't exist
+    const ensureMapContainer = () => {
+      // Check if container already exists
+      let container = document.getElementById(MAP_CONTAINER_ID);
+      
+      if (!container) {
+        console.log("DEBUG: Creating map container element");
+        container = document.createElement('div');
+        container.id = MAP_CONTAINER_ID;
+        container.style.width = '100%';
+        container.style.height = 'calc(100vh - 8rem)';
+        container.style.minHeight = '500px';
+        container.style.position = 'relative';
+        container.style.zIndex = '1';
+        container.style.border = '1px solid #ccc';
+        
+        // Find the parent element to append to
+        const mapParent = document.querySelector('.map-parent');
+        if (mapParent) {
+          console.log("DEBUG: Found map parent element, appending container");
+          mapParent.appendChild(container);
+        } else {
+          console.log("DEBUG: No map parent found, appending to body");
+          document.body.appendChild(container);
+        }
+      } else {
+        console.log("DEBUG: Map container already exists");
+      }
+      
+      return container;
+    };
+    
     // Function to initialize map
     const initMap = async () => {
       try {
+        // Ensure container exists
+        const container = ensureMapContainer();
+        console.log(`DEBUG: Container dimensions: ${container.clientWidth}x${container.clientHeight}`);
+        
         // Load Leaflet JS if needed
         if (!window.L) {
           console.log("DEBUG: Loading Leaflet JS");
           await loadLeafletJs();
         }
         
-        console.log("DEBUG: Creating map with container:", mapContainerRef.current);
+        console.log("DEBUG: Creating map with container ID:", MAP_CONTAINER_ID);
         
         // Create map
-        const map = window.L.map(mapContainerRef.current, {
+        const map = window.L.map(MAP_CONTAINER_ID, {
           center: center,
           zoom: 13,
           preferCanvas: true,
@@ -730,6 +766,12 @@ export default function MapView() {
         setTimeout(() => {
           map.invalidateSize();
           console.log("DEBUG: Map size invalidated");
+          
+          // Force a second resize after a longer delay
+          setTimeout(() => {
+            map.invalidateSize();
+            console.log("DEBUG: Second map size invalidation");
+          }, 500);
         }, 300);
       } catch (error) {
         console.error("DEBUG: Error initializing map:", error);
@@ -737,12 +779,21 @@ export default function MapView() {
       }
     };
     
-    // Initialize with delay to ensure DOM is ready
-    const timeoutId = setTimeout(initMap, 500);
+    // Wait for DOM to be fully loaded
+    if (document.readyState === 'loading') {
+      console.log("DEBUG: Document still loading, waiting for DOMContentLoaded");
+      document.addEventListener('DOMContentLoaded', () => {
+        // Initialize with delay to ensure DOM is ready
+        setTimeout(initMap, 500);
+      });
+    } else {
+      console.log("DEBUG: Document already loaded, initializing map with delay");
+      // Initialize with delay to ensure DOM is ready
+      setTimeout(initMap, 500);
+    }
     
     // Cleanup
     return () => {
-      clearTimeout(timeoutId);
       if (mapRef.current) {
         console.log("DEBUG: Cleaning up map");
         mapRef.current.off('click', handleMapClick);
@@ -929,7 +980,7 @@ export default function MapView() {
   }
 
   return (
-    <div className="relative h-full">
+    <div className="relative h-full map-parent">
       {/* Map Controls - positioned above the map but below dialogs */}
       <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
         <Button
@@ -993,9 +1044,9 @@ export default function MapView() {
         </div>
       )}
       
-      {/* Map Container - using ref instead of ID */}
+      {/* Map Container - using direct DOM manipulation instead of refs */}
       <div 
-        ref={mapContainerRef}
+        id={MAP_CONTAINER_ID} 
         className="w-full h-full"
         style={{ 
           height: 'calc(100vh - 8rem)', 

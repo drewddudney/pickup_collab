@@ -341,6 +341,16 @@ function getOrCreateMapInstance(containerId: string, center: [number, number], z
 
 const libraries: Libraries = ['places'];
 
+// Define sport image mapping at the component level
+const sportImageMap: Record<string, string> = {
+  basketball: "basketball.png",
+  pickleball: "pickleball.png",
+  tennis: "tennisball.png",
+  volleyball: "volleyball.png",
+  football: "football.png",
+  soccer: "football.png" // Use football as fallback for soccer
+};
+
 export default function MapView() {
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
@@ -402,23 +412,23 @@ export default function MapView() {
     }
   };
 
-  // Create sport-specific icons
+  // Get sport icon for markers
   const getSportIcon = useCallback((sportId: string) => {
     if (!window.L) {
-      console.error("DEBUG: window.L not available for sport icon");
+      console.error("DEBUG: Leaflet not available for icon creation");
       return null;
     }
     
-    // Use the marker images from the public folder
-    const markerPath = `/sports/${sportId}-marker.svg`;
+    // Use the PNG files directly from the public folder
+    const imagePath = `/${sportImageMap[sportId] || 'basketball.png'}`;
     
-    console.log("DEBUG: Using marker image:", markerPath);
+    console.log("DEBUG: Using sport image:", imagePath);
     
     return window.L.icon({
-      iconUrl: markerPath,
+      iconUrl: imagePath,
       iconSize: [32, 32],
-      iconAnchor: [16, 32],
-      popupAnchor: [0, -32]
+      iconAnchor: [16, 16],
+      popupAnchor: [0, -16]
     });
   }, []);
 
@@ -1034,7 +1044,7 @@ export default function MapView() {
               </p>
               ${(location.sports || []).map(sport => `
                 <div class="flex items-center gap-2">
-                  <img src="/sports/${sport.sportId}-logo.svg" alt="${sport.sportId}" class="w-5 h-5" />
+                  <img src="/${sportImageMap[sport.sportId] || 'basketball.png'}" alt="${sport.sportId}" class="w-5 h-5" />
                   <p class="text-sm">
                     ${sport.sportId.charAt(0).toUpperCase() + sport.sportId.slice(1)}: ${sport.courtCount} courts
                   </p>
@@ -1073,53 +1083,53 @@ export default function MapView() {
 
   // Add preview marker when adding a new location
   useEffect(() => {
-    if (!mapRef.current || !isMapInitialized || !isDialogOpen || !newLocation.lat || !newLocation.lng) {
-      return;
-    }
+    if (!isDialogOpen || !isMapInitialized || !mapRef.current || !newLocation.lat || !newLocation.lng) return;
     
-    console.log("DEBUG: Adding preview marker for new location");
-    const map = mapRef.current;
-    
-    // Create marker
-    const marker = window.L.marker(
-      [newLocation.lat, newLocation.lng],
-      { 
-        icon: getSportIcon(selectedSport?.id || 'basketball'),
-        draggable: true
-      }
-    ).addTo(map);
-    
-    // Add drag events
-    marker.on('dragstart', () => setIsDraggingMarker(true));
-    marker.on('dragend', (e: { target: { getLatLng: () => { lat: number; lng: number } } }) => {
-      setIsDraggingMarker(false);
-      const position = e.target.getLatLng();
+    try {
+      console.log("DEBUG: Adding preview marker for new location");
       
+      // Create marker
+      const marker = window.L.marker(
+        [newLocation.lat, newLocation.lng],
+        { 
+          icon: getSportIcon(selectedSport?.id || 'basketball'),
+          draggable: true,
+          autoPan: true
+        }
+      ).addTo(mapRef.current);
+      
+      marker.on('dragstart', () => setIsDraggingMarker(true));
+      marker.on('dragend', (e: { target: { getLatLng: () => { lat: number; lng: number } } }) => {
+        setIsDraggingMarker(false);
+        const position = e.target.getLatLng();
         setNewLocation(prev => ({
           ...prev,
-        lat: position.lat,
-        lng: position.lng
-      }));
+          lat: position.lat,
+          lng: position.lng
+        }));
+        
+        // Update address based on new coordinates
+        reverseGeocode(position.lat, position.lng);
+      });
       
-      reverseGeocode(position.lat, position.lng);
-    });
-    
-    // Add popup
-    marker.bindPopup(`
-      <div class="p-2">
-        <h3 class="font-semibold">${newLocation.name || 'New Location'}</h3>
-        <p class="text-sm">${newLocation.address || 'Address will appear here'}</p>
-        <div class="mt-2">
-          <p class="text-xs text-gray-500">Drag marker to adjust position</p>
+      // Add popup
+      marker.bindPopup(`
+        <div class="p-2">
+          <h3 class="font-semibold">${newLocation.name || 'New Location'}</h3>
+          <p class="text-sm">${newLocation.address || 'Address will appear here'}</p>
+          <div class="mt-2">
+            <div class="flex items-center gap-2">
+              <img src="/${sportImageMap[selectedSport.id] || 'basketball.png'}" alt="${selectedSport.name}" class="w-5 h-5" />
+              <p class="text-sm">${selectedSport.name}</p>
+            </div>
+            <p class="text-xs text-gray-500">Drag marker to adjust position</p>
+          </div>
         </div>
-      </div>
-    `);
-    
-    // Cleanup
-    return () => {
-      map.removeLayer(marker);
-    };
-  }, [isDialogOpen, newLocation.lat, newLocation.lng, newLocation.name, newLocation.address, selectedSport, isDraggingMarker, isMapInitialized, getSportIcon, reverseGeocode]);
+      `);
+    } catch (error) {
+      console.error("DEBUG: Error creating preview marker:", error);
+    }
+  }, [isDialogOpen, isMapInitialized, mapRef, newLocation.lat, newLocation.lng, selectedSport, reverseGeocode, getSportIcon]);
 
   const hasValidLocation = (loc: Partial<ExtendedLocation>) => {
     return loc.address && typeof loc.lat === 'number' && typeof loc.lng === 'number';

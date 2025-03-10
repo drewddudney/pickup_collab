@@ -1013,51 +1013,60 @@ export default function MapView() {
         return;
       }
       
-      const marker = window.L.marker(
-        [location.lat, location.lng],
-        { icon: getSportIcon(location.sports?.[0]?.sportId || 'basketball') }
-      ).addTo(map);
+      // Find the primary sport for this location
+      const primarySport = location.sports?.[0]?.sportId || 'basketball';
+      console.log("DEBUG: Creating marker for location:", location.name, "with sport:", primarySport);
       
-      // Add popup
-      marker.bindPopup(`
-        <div class="p-2">
-          <h3 class="font-semibold">${location.name}</h3>
-          <p class="text-sm">${location.address}</p>
-          <div class="mt-2 space-y-1">
-            <p class="text-sm">
-              ${location.venueType === 'indoor' ? '🏢 Indoor' : '🌳 Outdoor'} Facility
-            </p>
-            ${(location.sports || []).map(sport => `
-              <div class="flex items-center gap-2">
-                <p class="text-sm">
-                  ${sport.sportId.charAt(0).toUpperCase() + sport.sportId.slice(1)}: ${sport.courtCount} courts
-                </p>
-              </div>
-            `).join('')}
-            ${location.hasLights ? `
-              <p class="text-sm flex items-center">
-                <span class="mr-1">🌙</span> Available for night play
+      try {
+        const marker = window.L.marker(
+          [location.lat, location.lng],
+          { icon: getSportIcon(primarySport) }
+        ).addTo(map);
+        
+        // Add popup
+        marker.bindPopup(`
+          <div class="p-2">
+            <h3 class="font-semibold">${location.name}</h3>
+            <p class="text-sm">${location.address}</p>
+            <div class="mt-2 space-y-1">
+              <p class="text-sm">
+                ${location.venueType === 'indoor' ? '🏢 Indoor' : '🌳 Outdoor'} Facility
               </p>
+              ${(location.sports || []).map(sport => `
+                <div class="flex items-center gap-2">
+                  <img src="/sports/${sport.sportId}-logo.svg" alt="${sport.sportId}" class="w-5 h-5" />
+                  <p class="text-sm">
+                    ${sport.sportId.charAt(0).toUpperCase() + sport.sportId.slice(1)}: ${sport.courtCount} courts
+                  </p>
+                </div>
+              `).join('')}
+              ${location.hasLights ? `
+                <p class="text-sm flex items-center">
+                  <span class="mr-1">🌙</span> Available for night play
+                </p>
+              ` : ''}
+              <p class="text-sm">
+                Access: ${formatAccessType(location.accessType)}
+                ${location.accessType === ACCESS_TYPES.PAID && location.hourlyRate ? 
+                  ` ($${location.hourlyRate}/hour)` : ''}
+              </p>
+            </div>
+            ${user && location.createdBy === user.uid ? `
+              <button 
+                class="mt-2 px-2 py-1 bg-red-500 text-white rounded text-sm"
+                onclick="window.deleteLocation('${location.id}')"
+              >
+                Delete
+              </button>
             ` : ''}
-            <p class="text-sm">
-              Access: ${formatAccessType(location.accessType)}
-              ${location.accessType === ACCESS_TYPES.PAID && location.hourlyRate ? 
-                ` ($${location.hourlyRate}/hour)` : ''}
-            </p>
           </div>
-          ${user && location.createdBy === user.uid ? `
-            <button 
-              class="mt-2 px-2 py-1 bg-red-500 text-white rounded text-sm"
-              onclick="window.deleteLocation('${location.id}')"
-            >
-              Delete
-            </button>
-          ` : ''}
-        </div>
-      `);
-      
-      // Store the marker reference
-      markersRef.current.push(marker);
+        `);
+        
+        // Store the marker reference
+        markersRef.current.push(marker);
+      } catch (error) {
+        console.error("DEBUG: Error creating marker:", error);
+      }
     });
     
   }, [filteredLocations, selectedSport, isMapInitialized, user, formatAccessType, getSportIcon]);
@@ -1099,12 +1108,10 @@ export default function MapView() {
     marker.bindPopup(`
       <div class="p-2">
         <h3 class="font-semibold">${newLocation.name || 'New Location'}</h3>
-        <p class="text-sm">${newLocation.address || 'Adjusting location...'}</p>
-        ${isDraggingMarker ? `
-          <p class="text-xs text-blue-600 mt-1">Release to set new position</p>
-        ` : `
-          <p class="text-xs text-muted-foreground mt-1">Drag marker to adjust position</p>
-        `}
+        <p class="text-sm">${newLocation.address || 'Address will appear here'}</p>
+        <div class="mt-2">
+          <p class="text-xs text-gray-500">Drag marker to adjust position</p>
+        </div>
       </div>
     `);
     
@@ -1421,35 +1428,25 @@ export default function MapView() {
             </div>
             <div className="grid gap-4">
               <Label>Available Sports</Label>
-              <div className="grid gap-4">
-                {Object.entries(SportMarkers).map(([sportId, SportIcon]) => (
-                  <div key={sportId} className="flex items-start space-x-4">
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                {sports.map((sport) => (
+                  <div key={sport.id} className="flex items-center space-x-2">
                     <Checkbox
-                      id={`sport-${sportId}`}
-                      checked={(newLocation.sports || []).some(s => s.sportId === sportId)}
-                      onCheckedChange={(checked) => handleSportSelection(sportId, checked === true)}
+                      id={`sport-${sport.id}`}
+                      checked={(newLocation.sports || []).some(s => s.sportId === sport.id)}
+                      onCheckedChange={(checked) => handleSportSelection(sport.id, !!checked)}
                     />
-                    <div className="grid gap-1.5 leading-none">
-                      <div className="flex items-center gap-2">
-                        <SportIcon className="w-4 h-4" />
-                        <Label htmlFor={`sport-${sportId}`} className="font-medium">
-                          {sportId.charAt(0).toUpperCase() + sportId.slice(1)}
-                        </Label>
-                      </div>
-                      {(newLocation.sports || []).some(s => s.sportId === sportId) && (
-                        <div className="flex items-center gap-2 ml-6">
-                          <Label htmlFor={`courts-${sportId}`}>Courts:</Label>
-                          <Input
-                            id={`courts-${sportId}`}
-                            type="number"
-                            min="1"
-                            className="w-20"
-                            value={(newLocation.sports || []).find(s => s.sportId === sportId)?.courtCount || 1}
-                            onChange={(e) => handleCourtCountChange(sportId, parseInt(e.target.value) || 1)}
-                          />
-                        </div>
-                      )}
-                    </div>
+                    <label
+                      htmlFor={`sport-${sport.id}`}
+                      className="flex items-center text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      <img 
+                        src={`/sports/${sport.id}-logo.svg`} 
+                        alt={sport.name} 
+                        className="w-5 h-5 mr-2" 
+                      />
+                      {sport.name}
+                    </label>
                   </div>
                 ))}
               </div>

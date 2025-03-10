@@ -420,37 +420,28 @@ export function NotificationsDropdown({ onShowAll }: NotificationsDropdownProps)
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
-        <div className="flex items-center justify-between p-4">
+        <div className="flex items-center justify-between p-3 border-b">
           <div className="flex items-center">
-            <Bell className="h-5 w-5 mr-2" />
-            <span className="font-medium">
+            <Bell className="h-4 w-4 mr-2" />
+            <span className="font-medium text-sm">
               {unreadCount > 0 ? `${unreadCount} New` : 'Notifications'}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          {notifications.length > 0 && (
             <Button 
               variant="ghost" 
               size="sm" 
               onClick={clearAllNotifications}
-              disabled={notifications.length === 0 || isClearingAll}
-              className="h-8 px-2 text-xs"
+              disabled={isClearingAll}
+              className="h-7 px-2 text-xs"
             >
               {isClearingAll ? (
-                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
-                <Trash2 className="h-3 w-3 mr-1" />
+                <Trash2 className="h-3 w-3" />
               )}
-              Clear All
             </Button>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={showAllNotifications}
-              className="h-8 px-2 text-xs"
-            >
-              See All
-            </Button>
-          </div>
+          )}
         </div>
         <DropdownMenuSeparator />
         
